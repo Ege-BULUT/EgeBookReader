@@ -128,3 +128,4 @@ that names the old one.
 
 - Speed slider 0.5x to 3x in 0.1 steps, default 1.0, below the voice choice. Supertonic follows it exactly (0.5x, 1x, 3x gave 10.81, 5.40, 1.80 s for one sentence).
 - 0.1.1 was released on GitHub as a prerelease at the user's request; the site still serves 0.1.0-era files until the user asks for a deploy.
+- Released on GitHub as a prerelease (v0.1.2) at the user's request; the site was not updated.
