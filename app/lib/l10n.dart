@@ -102,7 +102,7 @@ const _en = <String, String>{
   'Sesli okuma düğmesini göster': 'Show the read aloud button',
   'Sistem': 'System',
   'İndirilen': 'Downloaded',
-  'Hız': 'Speed',
+  'Konuşma hızı': 'Speaking speed',
   'Telefonun kendi ses motoru kullanılır. Kitabın diline göre ses seçilir.': "Uses your phone's own voice engine and picks a voice for the book's language.",
   'Telefona kurulan sesler': 'Voices on this phone',
   'API anahtarı': 'API key',

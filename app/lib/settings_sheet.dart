@@ -238,7 +238,6 @@ extension on _SettingsSheetState {
         options: const {VoiceSource.system: 'Sistem', VoiceSource.model: 'İndirilen', VoiceSource.api: 'API'},
         onChanged: (v) => s.update((x) => x.voiceSource = v),
       ),
-      _SettledSlider(label: 'Hız', value: s.ttsSpeed, min: 0.6, max: 2, decimals: 2, suffix: 'x', onEnd: (v) => s.update((x) => x.ttsSpeed = v)),
       if (s.voiceSource == VoiceSource.system)
         Padding(
           padding: const EdgeInsets.only(top: 14),
@@ -259,6 +258,7 @@ extension on _SettingsSheetState {
         _field('Model', s.apiModel, '', (v) => s.update((x) => x.apiModel = v)),
         _field('Ses', s.apiVoice, '', (v) => s.update((x) => x.apiVoice = v)),
       ],
+      _SettledSlider(label: 'Konuşma hızı', value: s.ttsSpeed, min: 0.5, max: 3, divisions: 25, decimals: 1, suffix: 'x', onEnd: (v) => s.update((x) => x.ttsSpeed = (v * 10).round() / 10)),
     ];
   }
 
@@ -451,11 +451,12 @@ class _SubLabel extends StatelessWidget {
 
 /// Slides freely and applies when the finger lifts, because each new value means rendering pages again.
 class _SettledSlider extends StatefulWidget {
-  const _SettledSlider({required this.label, required this.value, required this.min, required this.max, required this.onEnd, this.percent = false, this.decimals = 0, this.suffix = ''});
+  const _SettledSlider({required this.label, required this.value, required this.min, required this.max, required this.onEnd, this.percent = false, this.decimals = 0, this.suffix = '', this.divisions});
   final String label, suffix;
   final double value, min, max;
   final bool percent;
   final int decimals;
+  final int? divisions;
   final ValueChanged<double> onEnd;
   @override
   State<_SettledSlider> createState() => _SettledSliderState();
@@ -481,6 +482,7 @@ class _SettledSliderState extends State<_SettledSlider> {
           value: v,
           min: widget.min,
           max: widget.max,
+          divisions: widget.divisions,
           onChanged: (x) => setState(() => _dragging = x),
           onChangeEnd: (x) {
             setState(() => _dragging = null);

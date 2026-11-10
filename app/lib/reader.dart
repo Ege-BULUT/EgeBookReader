@@ -1138,7 +1138,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
           const Spacer(),
           TextButton(
             onPressed: () {
-              const speeds = [0.8, 1.0, 1.25, 1.5, 2.0];
+              const speeds = [0.8, 1.0, 1.2, 1.5, 2.0, 3.0];
               final next = speeds[(speeds.indexOf(settings.ttsSpeed) + 1) % speeds.length];
               settings.update((x) => x.ttsSpeed = next);
             },

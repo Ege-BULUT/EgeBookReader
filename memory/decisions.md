@@ -123,3 +123,8 @@ that names the old one.
 - `SpeechMap` in `app/lib/tts.dart` holds positions. System voices report word boundaries (a paced estimate covers engines that do not); on-device and API voices give no timings, so a word's place is its share of the sentence's letters. PDF words come from PDFium's character boxes.
 - While the bar or marker is held the voice waits and the highlight follows; on release it speaks from that word. The marker's long press is 170 ms so it wins over the page-turn gesture.
 - Checked on the emulator with Supertonic: highlight moves with speech, bar and marker both move it and the voice resumes there. Not exercised: system voice boundaries, PDF highlight.
+
+## 2026-11-10 D15 Version 0.1.2: speaking speed
+
+- Speed slider 0.5x to 3x in 0.1 steps, default 1.0, below the voice choice. Supertonic follows it exactly (0.5x, 1x, 3x gave 10.81, 5.40, 1.80 s for one sentence).
+- 0.1.1 was released on GitHub as a prerelease at the user's request; the site still serves 0.1.0-era files until the user asks for a deploy.
