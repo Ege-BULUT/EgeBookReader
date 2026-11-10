@@ -87,12 +87,24 @@ class PageStyle {
 
 /// One sentence to read aloud, with where it sits on its page when that is known.
 class SpokenSentence {
-  SpokenSentence(this.text, this.lang, this.page, this.boxes);
+  SpokenSentence(this.text, this.lang, this.page, this.boxes, [this.words = const []]);
   final String text;
   final String? lang;
   final int page;
   final List<Rect> boxes;
+  final List<SpokenWord> words;
 }
+
+/// A word of a [SpokenSentence]: where it is in the sentence's text and on the page.
+class SpokenWord {
+  SpokenWord(this.start, this.end, this.boxes);
+  final int start, end;
+  final List<Rect> boxes;
+}
+
+/// Words are runs of non-space, except Chinese, Japanese and Korean, which go character by character.
+final _word = RegExp(r'[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]|[^\s\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]+');
+final _sentenceEnd = RegExp(r'[.!?…。！？؟।]["”’)»]*$');
 
 // A full stop counts as an end only before a space or the end of the text, so "4.0" stays in one piece.
 final _sentence = RegExp(r'(?:[.!?…](?=[^\s"”’)».!?…])|[^.!?…。！？؟।])+[.!?…。！？؟।]*["”’)»]*\s*|[.!?…。！？؟।]+\s*');
@@ -214,6 +226,7 @@ class PdfSource extends PageSource {
   final PdfDocument doc;
   final String path;
   final _imageBoxes = <int, Future<List<Rect>>>{};
+  Size? _pageBox;
   static ui.FragmentProgram? _darkProgram;
   @override
   final String title;
@@ -221,7 +234,7 @@ class PdfSource extends PageSource {
   int get pageCount => doc.pages.length;
 
   @override
-  Future<void> prepare(Size page, PageStyle style, {void Function(double)? onProgress}) async {}
+  Future<void> prepare(Size page, PageStyle style, {void Function(double)? onProgress}) async => _pageBox = page;
 
   @override
   Future<void> paint(Canvas canvas, int index, Size page, PageStyle style) async {
@@ -310,11 +323,55 @@ class PdfSource extends PageSource {
 
   @override
   Future<List<SpokenSentence>> sentencesOn(int index) async {
-    final text = _joinPdfLines((await doc.pages[index].loadStructuredText()).fullText);
-    return [
-      for (final m in _sentence.allMatches(text))
-        if (m.group(0)!.trim().isNotEmpty) SpokenSentence(m.group(0)!.trim(), null, index, const []),
-    ];
+    final pdf = doc.pages[index];
+    final raw = await pdf.loadStructuredText();
+    final box = _pageBox ?? Size(pdf.width, pdf.height);
+    final scale = (box.width / pdf.width) < (box.height / pdf.height) ? box.width / pdf.width : box.height / pdf.height;
+    final size = Size(pdf.width * scale, pdf.height * scale);
+    final origin = Offset((box.width - size.width) / 2, (box.height - size.height) / 2);
+    Rect rectOf(int from, int to) {
+      var r = raw.charRects[from].toRect(page: pdf, scaledPageSize: size);
+      for (var i = from + 1; i < to && i < raw.charRects.length; i++) {
+        r = r.expandToInclude(raw.charRects[i].toRect(page: pdf, scaledPageSize: size));
+      }
+      return r.shift(origin);
+    }
+
+    final out = <SpokenSentence>[];
+    final text = StringBuffer();
+    var words = <SpokenWord>[];
+    void finish() {
+      if (words.isEmpty) return;
+      out.add(SpokenSentence(text.toString(), null, index, [for (final w in words) ...w.boxes], words));
+      text.clear();
+      words = [];
+    }
+
+    Match? previous;
+    for (final m in _word.allMatches(raw.fullText)) {
+      final part = m.group(0)!;
+      final box = rectOf(m.start, m.end);
+      final broken = previous != null && previous.group(0)!.endsWith('-') && raw.fullText.substring(previous.end, m.start).contains('\n');
+      if (broken && words.isNotEmpty) {
+        // A word hyphenated at the end of a line is said as one word and marked on both lines.
+        final last = words.removeLast();
+        final kept = text.toString();
+        text
+          ..clear()
+          ..write(kept.substring(0, kept.length - 1))
+          ..write(part);
+        words.add(SpokenWord(last.start, text.length, [...last.boxes, box]));
+      } else {
+        if (text.isNotEmpty) text.write(' ');
+        final start = text.length;
+        text.write(part);
+        words.add(SpokenWord(start, text.length, [box]));
+      }
+      previous = m;
+      if (_sentenceEnd.hasMatch(part)) finish();
+    }
+    finish();
+    return out;
   }
 
   Future<List<Rect>> _boxes(int index) => _imageBoxes[index] ??= _findImages(index);
@@ -622,10 +679,14 @@ class TextSource extends PageSource {
       for (final match in _sentence.allMatches(text)) {
         final sentence = match.group(0)!;
         if (sentence.trim().isEmpty) continue;
-        final boxes = painter.getBoxesForSelection(
-          TextSelection(baseOffset: start + match.start, extentOffset: start + match.start + sentence.trimRight().length),
-        );
-        out.add(SpokenSentence(sentence.trim(), placed.lang, index, [for (final b in boxes) b.toRect().shift(shift)]));
+        final trimmed = sentence.trim();
+        final begin = start + match.start + sentence.length - sentence.trimLeft().length;
+        List<Rect> boxesOf(int from, int to) => [
+              for (final b in painter.getBoxesForSelection(TextSelection(baseOffset: from, extentOffset: to))) b.toRect().shift(shift),
+            ];
+        out.add(SpokenSentence(trimmed, placed.lang, index, boxesOf(begin, begin + trimmed.length), [
+          for (final w in _word.allMatches(trimmed)) SpokenWord(w.start, w.end, boxesOf(begin + w.start, begin + w.end)),
+        ]));
       }
     }
     return out;

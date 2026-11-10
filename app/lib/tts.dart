@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
+import 'dart:ui' show Offset;
 
 import 'package:archive/archive_io.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -229,21 +230,92 @@ Uint8List _wav(Float32List samples, int rate) {
   return bytes.buffer.asUint8List();
 }
 
+/// Positions within one page's sentences: how far along, and which word is at a spot.
+class SpeechMap {
+  SpeechMap(this.sentences) {
+    var sum = 0;
+    for (final s in sentences) {
+      _before.add(sum);
+      sum += s.text.length + 1;
+    }
+    total = sum;
+  }
+
+  final List<SpokenSentence> sentences;
+  final _before = <int>[];
+  late final int total;
+
+  double progress(int sentence, int char) {
+    if (total == 0 || sentence >= sentences.length) return sentences.isEmpty ? 0 : 1;
+    return ((_before[sentence] + char) / total).clamp(0.0, 1.0);
+  }
+
+  /// The last word that starts at or before [char].
+  int wordAt(SpokenSentence s, int char) {
+    var found = 0;
+    for (var i = 0; i < s.words.length && s.words[i].start <= char; i++) {
+      found = i;
+    }
+    return found;
+  }
+
+  /// The sentence and word at [fraction] of the page.
+  (int, int) locate(double fraction) {
+    final target = (fraction.clamp(0.0, 1.0) * total).floor();
+    var i = sentences.length - 1;
+    while (i > 0 && _before[i] > target) {
+      i--;
+    }
+    return (i, wordAt(sentences[i], target - _before[i]));
+  }
+
+  /// The word nearest to [at] on [page]. Height counts for more, so the finger stays on its line.
+  (int, int)? nearest(int page, Offset at) {
+    (int, int)? best;
+    var bestDistance = double.infinity;
+    for (final (i, s) in sentences.indexed) {
+      if (s.page != page) continue;
+      for (final (w, word) in s.words.indexed) {
+        for (final r in word.boxes) {
+          final dx = at.dx < r.left ? r.left - at.dx : (at.dx > r.right ? at.dx - r.right : 0.0);
+          final dy = at.dy < r.top ? r.top - at.dy : (at.dy > r.bottom ? at.dy - r.bottom : 0.0);
+          final d = dx * dx + 9 * dy * dy;
+          if (d < bestDistance) {
+            bestDistance = d;
+            best = (i, w);
+          }
+        }
+      }
+    }
+    return best;
+  }
+}
+
 /// Reads a list of sentences aloud through whichever voice is chosen, one at a time.
 class Speaker extends ChangeNotifier {
   final _system = FlutterTts();
   final _player = AudioPlayer();
   bool _systemReady = false;
 
-  List<SpokenSentence> sentences = const [];
+  SpeechMap map = SpeechMap(const []);
+  List<SpokenSentence> get sentences => map.sentences;
   int index = 0;
-  bool active = false, paused = false;
+
+  /// Where the voice is inside the current sentence, in characters.
+  int char = 0;
+  bool active = false, paused = false, scrubbing = false;
   String? error;
+
+  /// Ticks whenever the highlighted word changes, so only the marker and the bar redraw.
+  final cursor = ValueNotifier<int>(0);
 
   /// Called when the last sentence has been read, to turn the page.
   VoidCallback? onFinished;
 
   int _run = 0;
+  bool _pausedBeforeScrub = false;
+  int _systemBase = 0, _systemRun = -1;
+  bool _gotBoundary = false;
   Isolate? _isolate;
   SendPort? _jobs;
   String? _loadedModel;
@@ -253,13 +325,30 @@ class Speaker extends ChangeNotifier {
 
   SpokenSentence? get current => active && index < sentences.length ? sentences[index] : null;
 
+  SpokenWord? get currentWord {
+    final s = current;
+    return s == null || s.words.isEmpty ? null : s.words[map.wordAt(s, char)];
+  }
+
+  double get progress => map.progress(index, char);
+
+  void _setChar(int value) {
+    final s = current;
+    if (s == null) return;
+    final before = map.wordAt(s, char);
+    char = value.clamp(0, s.text.length);
+    if (map.wordAt(s, char) != before) cursor.value++;
+  }
+
   void start(List<SpokenSentence> list, {int from = 0}) {
-    sentences = list;
+    map = SpeechMap(list);
     index = from;
+    char = 0;
     active = true;
     paused = false;
     error = null;
     _audio.clear();
+    cursor.value++;
     _play();
   }
 
@@ -276,7 +365,9 @@ class Speaker extends ChangeNotifier {
 
   void step(int by) {
     index = (index + by).clamp(0, sentences.isEmpty ? 0 : sentences.length - 1);
+    char = 0;
     paused = false;
+    cursor.value++;
     _play();
   }
 
@@ -284,9 +375,37 @@ class Speaker extends ChangeNotifier {
     if (!active) return;
     active = false;
     paused = false;
+    scrubbing = false;
     _cancelSound();
     _audio.clear();
+    cursor.value++;
     notifyListeners();
+  }
+
+  /// The finger took hold of the bar or the marker: the voice waits until it lets go.
+  void beginScrub() {
+    if (scrubbing) return;
+    scrubbing = true;
+    _pausedBeforeScrub = paused;
+    _cancelSound();
+  }
+
+  void scrubTo(int sentence, int word) {
+    index = sentence;
+    char = sentences[sentence].words.isEmpty ? 0 : sentences[sentence].words[word].start;
+    cursor.value++;
+  }
+
+  void scrubFraction(double fraction) {
+    if (sentences.isEmpty) return;
+    final (s, w) = map.locate(fraction);
+    scrubTo(s, w);
+  }
+
+  void endScrub() {
+    if (!scrubbing) return;
+    scrubbing = false;
+    if (!_pausedBeforeScrub) _play();
   }
 
   void _cancelSound() {
@@ -306,10 +425,14 @@ class Speaker extends ChangeNotifier {
   Future<void> _loop(int run) async {
     try {
       while (run == _run && index < sentences.length) {
-        notifyListeners();
-        await _speak(sentences[index], index + 1 < sentences.length ? sentences[index + 1] : null);
+        final s = sentences[index];
+        // Always from the start of a word, so a resumed voice never begins mid-syllable.
+        final from = s.words.isEmpty ? 0 : s.words[map.wordAt(s, char)].start;
+        await _speak(s, index + 1 < sentences.length ? sentences[index + 1] : null, from, run);
         if (run != _run) return;
         index++;
+        char = 0;
+        cursor.value++;
       }
       if (run == _run && active) onFinished?.call();
     } catch (_) {
@@ -320,23 +443,23 @@ class Speaker extends ChangeNotifier {
     }
   }
 
-  Future<void> _speak(SpokenSentence s, SpokenSentence? next) async {
+  Future<void> _speak(SpokenSentence s, SpokenSentence? next, int from, int run) async {
     final model = voices.selected;
     if (settings.voiceSource == VoiceSource.api && settings.apiKey.isNotEmpty) {
       final file = _audioFor(s, _fetchFromApi);
       if (next != null) unawaited(_audioFor(next, _fetchFromApi).catchError((_) => File('')));
-      await _playFile(await file);
+      await _playFile(await file, s, from, run, settings.ttsSpeed);
     } else if (settings.voiceSource == VoiceSource.model && model != null) {
       final file = _audioFor(s, (x) => _synthesize(x, model));
       if (next != null) unawaited(_audioFor(next, (x) => _synthesize(x, model)).catchError((_) => File('')));
-      await _playFile(await file);
+      await _playFile(await file, s, from, run, 1);
     } else {
-      await _speakWithSystem(s);
+      await _speakWithSystem(s, from, run);
     }
   }
 
   Future<File> _audioFor(SpokenSentence s, Future<Uint8List> Function(SpokenSentence) make) =>
-      _audio[s.text] ??= () async {
+      _audio['${settings.ttsVoice}|${settings.ttsSpeed}|${s.text}'] ??= () async {
         final bytes = await make(s);
         final dir = await getTemporaryDirectory();
         final file = File(p.join(dir.path, 'speech-${_fileNumber++ % 8}.audio'));
@@ -344,26 +467,55 @@ class Speaker extends ChangeNotifier {
         return file;
       }();
 
-  Future<void> _speakWithSystem(SpokenSentence s) async {
+  Future<void> _speakWithSystem(SpokenSentence s, int from, int run) async {
     if (!_systemReady) {
       await _system.awaitSpeakCompletion(true);
+      _system.setProgressHandler((_, start, _, _) {
+        if (_systemRun != _run) return;
+        _gotBoundary = true;
+        _setChar(_systemBase + start);
+      });
       _systemReady = true;
     }
     if (s.lang != null) await _system.setLanguage(s.lang!);
     await _system.setSpeechRate(0.5 * settings.ttsSpeed);
-    await _system.speak(s.text);
+    if (run != _run) return;
+    _systemBase = from;
+    _systemRun = run;
+    _gotBoundary = false;
+    // Some voices never report where they are; then the marker walks at a typical reading pace.
+    final clock = Stopwatch()..start();
+    final walker = Timer.periodic(const Duration(milliseconds: 120), (_) {
+      if (run == _run && !_gotBoundary) _setChar(from + (clock.elapsedMilliseconds * 0.015 * settings.ttsSpeed).floor());
+    });
+    try {
+      await _system.speak(s.text.substring(from));
+    } finally {
+      walker.cancel();
+    }
   }
 
-  Future<void> _playFile(File file) async {
+  Future<void> _playFile(File file, SpokenSentence s, int from, int run, double rate) async {
     final done = Completer<void>();
     _playing = done;
-    final subscription = _player.onPlayerComplete.listen((_) {
+    final finished = _player.onPlayerComplete.listen((_) {
       if (!done.isCompleted) done.complete();
     });
-    await _player.setPlaybackRate(settings.voiceSource == VoiceSource.api ? settings.ttsSpeed : 1);
-    await _player.play(DeviceFileSource(file.path));
+    await _player.setPlaybackRate(rate);
+    await _player.setSourceDeviceFile(file.path);
+    var length = await _player.getDuration();
+    if (run != _run) return finished.cancel();
+    if (from > 0 && length != null) await _player.seek(length * (from / s.text.length));
+    // The voice gives no word timings, so a word's place is its share of the sentence's letters.
+    final moving = _player.onPositionChanged.listen((at) async {
+      length ??= await _player.getDuration();
+      final total = length?.inMilliseconds ?? 0;
+      if (run == _run && total > 0) _setChar((at.inMilliseconds / total * s.text.length).floor());
+    });
+    await _player.resume();
     await done.future;
-    await subscription.cancel();
+    await finished.cancel();
+    await moving.cancel();
   }
 
   Future<void> releaseModel() async {

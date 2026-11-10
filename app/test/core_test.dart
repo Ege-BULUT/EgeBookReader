@@ -9,6 +9,7 @@ import 'package:egebookreader/colorize.dart';
 import 'package:egebookreader/curl.dart';
 import 'package:egebookreader/formats.dart';
 import 'package:egebookreader/settings.dart';
+import 'package:egebookreader/tts.dart';
 import 'package:egebookreader/zones.dart';
 import 'package:egebookreader/sources.dart';
 import 'package:flutter/material.dart';
@@ -159,6 +160,60 @@ void main() {
       expect(sentences.first.lang, 'tr');
       expect(sentences.every((s) => s.boxes.isNotEmpty), isTrue);
       expect(sentences.first.boxes.first.top, greaterThanOrEqualTo(26));
+
+      expect(sentences.first.words.length, 3);
+      final second = sentences.first.words[1];
+      expect(sentences.first.text.substring(second.start, second.end), 'cümle');
+      expect(second.boxes.single.left, greaterThan(sentences.first.words[0].boxes.single.right));
+      expect(second.boxes.single.height, greaterThan(0));
+    });
+  });
+
+  group('speech positions', () {
+    SpokenSentence sentence(String text, int page, double y) {
+      final words = [
+        for (final m in RegExp(r'\S+').allMatches(text))
+          SpokenWord(m.start, m.end, [Rect.fromLTWH(m.start * 10.0, y, (m.end - m.start) * 10.0, 20)]),
+      ];
+      return SpokenSentence(text, 'tr', page, const [], words);
+    }
+
+    final map = SpeechMap([sentence('bir iki', 0, 0), sentence('üç dört beş', 0, 40), sentence('altı', 1, 0)]);
+
+    test('progress grows through the sentences and ends at 1', () {
+      expect(map.progress(0, 0), 0);
+      expect(map.progress(1, 0), greaterThan(map.progress(0, 6)));
+      expect(map.progress(3, 0), 1);
+    });
+
+    test('a fraction finds the word that is there, and back again', () {
+      expect(map.locate(0), (0, 0));
+      for (var s = 0; s < map.sentences.length; s++) {
+        for (var w = 0; w < map.sentences[s].words.length; w++) {
+          expect(map.locate(map.progress(s, map.sentences[s].words[w].start) + 1e-6), (s, w));
+        }
+      }
+      expect(map.locate(1), (2, 0));
+    });
+
+    test('dragging finds the nearest word on that page and stays on its line', () {
+      expect(map.nearest(0, const Offset(45, 8)), (0, 1));
+      expect(map.nearest(0, const Offset(5, 48)), (1, 0));
+      expect(map.nearest(0, const Offset(1000, 50)), (1, 2));
+      expect(map.nearest(1, const Offset(5, 8)), (2, 0));
+      expect(map.nearest(5, Offset.zero), isNull);
+    });
+
+    testWidgets('Chinese is marked character by character', (tester) async {
+      await tester.runAsync(() async {
+        final book = TextSource('t', [TextBlock([Inline('读书之乐。')])], 'zh');
+        const style = PageStyle(
+          paper: Colors.white, ink: Colors.black, fontSize: 18, lineHeight: 1.5,
+          fontFamily: 'serif', bold: false, italic: false, grain: 0, actualBook: false,
+        );
+        await book.prepare(const Size(360, 640), style);
+        expect((await book.sentencesOn(0)).single.words.length, 5);
+      });
     });
   });
 

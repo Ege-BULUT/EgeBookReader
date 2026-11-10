@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -966,15 +967,66 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
         : withBadges(_page);
   }
 
-  /// A soft band behind the sentence being read.
+  /// The sentence being read, and the word in it marked like a highlighter pen.
+  /// Holding the marker and moving it takes the voice to another word.
   Widget _spokenHighlight(int index) {
-    final s = speaker.current;
-    return IgnorePointer(
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: _HighlightPainter(s != null && s.page == index ? s.boxes : const [], settings.palette.accent),
-      ),
-    );
+    return Builder(builder: (page) {
+      return ValueListenableBuilder<int>(
+        valueListenable: speaker.cursor,
+        builder: (_, _, _) {
+          final s = speaker.current;
+          final word = speaker.currentWord;
+          if (s == null || s.page != index) return const SizedBox.shrink();
+          final c = settings.palette;
+          final eink = settings.isEink;
+          void follow(Offset global) {
+            final box = page.findRenderObject() as RenderBox?;
+            if (box == null) return;
+            final hit = speaker.map.nearest(index, box.globalToLocal(global));
+            if (hit != null) speaker.scrubTo(hit.$1, hit.$2);
+          }
+
+          return Stack(fit: StackFit.expand, children: [
+            IgnorePointer(child: CustomPaint(size: Size.infinite, painter: _HighlightPainter(s.boxes, c.accent))),
+            if (word != null && word.boxes.isNotEmpty) ...[
+              // Only a hyphenated word has more than one piece; the rest of it stays still.
+              for (final extra in word.boxes.skip(1))
+                Positioned.fromRect(rect: extra, child: IgnorePointer(child: CustomPaint(painter: _MarkerPainter(c, eink)))),
+              TweenAnimationBuilder<Rect?>(
+                tween: RectTween(end: word.boxes.first),
+                duration: Duration(milliseconds: eink ? 1 : 110),
+                curve: Curves.easeOut,
+                builder: (_, rect, _) => Positioned.fromRect(
+                  rect: rect!.inflate(14),
+                  child: RawGestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    gestures: {
+                      LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+                        () => LongPressGestureRecognizer(duration: const Duration(milliseconds: 170)),
+                        (r) => r
+                          ..onLongPressStart = (d) {
+                            HapticFeedback.selectionClick();
+                            speaker.beginScrub();
+                            follow(d.globalPosition);
+                          }
+                          ..onLongPressMoveUpdate = (d) {
+                            follow(d.globalPosition);
+                          }
+                          ..onLongPressEnd = (_) {
+                            speaker.endScrub();
+                          }
+                          ..onLongPressCancel = speaker.endScrub,
+                      ),
+                    },
+                    child: Padding(padding: const EdgeInsets.all(14), child: CustomPaint(painter: _MarkerPainter(c, eink))),
+                  ),
+                ),
+              ),
+            ],
+          ]);
+        },
+      );
+    });
   }
 
   /// A small button on each picture that can still be coloured.
@@ -1037,7 +1089,10 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
             padding: EdgeInsets.only(bottom: settings.scrollGap),
             child: img == null
                 ? ColoredBox(color: settings.palette.paper)
-                : RawImage(image: img, fit: BoxFit.fill, width: page.width, height: page.height),
+                : Stack(fit: StackFit.expand, children: [
+                    RawImage(image: img, fit: BoxFit.fill, width: page.width, height: page.height),
+                    _spokenHighlight(i),
+                  ]),
           );
         },
       ),
@@ -1056,12 +1111,24 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       curve: easeEnter,
       left: 14,
       right: 14,
-      bottom: on ? max(pad.bottom, 14) : -90,
+      bottom: on ? max(pad.bottom, 14) : -130,
       child: Container(
-        height: 58,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 2),
         decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: c.line)),
-        child: Row(children: [
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: ValueListenableBuilder<int>(
+              valueListenable: speaker.cursor,
+              builder: (_, _, _) => Slider(
+                value: speaker.progress,
+                onChangeStart: (_) => speaker.beginScrub(),
+                onChanged: speaker.scrubFraction,
+                onChangeEnd: (_) => speaker.endScrub(),
+              ),
+            ),
+          ),
+          Row(children: [
           const SizedBox(width: 8),
           _SpeakingBars(color: c.accent, playing: speaker.active && !speaker.paused && !settings.isEink),
           const Spacer(),
@@ -1079,6 +1146,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
             child: Text('${settings.ttsSpeed}x', style: const TextStyle(fontSize: 13)),
           ),
           button(Icons.close_rounded, speaker.stop, size: 21),
+          ]),
         ]),
       ),
     );
@@ -1352,6 +1420,28 @@ class _HoleClipper extends CustomClipper<Path> {
   bool shouldReclip(_HoleClipper old) => old.t != t;
 }
 
+/// A stroke of yellow highlighter: multiplied over light paper so the ink shows through it.
+class _MarkerPainter extends CustomPainter {
+  _MarkerPainter(this.palette, this.eink);
+  final Palette palette;
+  final bool eink;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = eink
+        ? (Paint()..color = palette.ink.withValues(alpha: 0.28))
+        : palette.isDark
+            ? (Paint()..color = const Color(0x66FFE234))
+            : (Paint()
+              ..color = const Color(0xFFFFE94A)
+              ..blendMode = BlendMode.multiply);
+    canvas.drawRRect(RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(3)), paint);
+  }
+
+  @override
+  bool shouldRepaint(_MarkerPainter o) => o.palette != palette || o.eink != eink;
+}
+
 class _HighlightPainter extends CustomPainter {
   _HighlightPainter(this.boxes, this.color);
   final List<Rect> boxes;
@@ -1359,7 +1449,7 @@ class _HighlightPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final p = Paint()..color = color.withValues(alpha: 0.2);
+    final p = Paint()..color = color.withValues(alpha: 0.07);
     for (final b in boxes) {
       canvas.drawRRect(RRect.fromRectAndRadius(b.inflate(1.5), const Radius.circular(3)), p);
     }

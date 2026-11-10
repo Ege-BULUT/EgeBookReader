@@ -1,4 +1,4 @@
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const T = {
   en: {
     contents:'Contents',open:'Tap the cover to open',download:'Download for Android',version:'Version',epigraph:'Every book is a universe that fits in your bag.',
@@ -28,8 +28,8 @@ const FEATURES = {
   tr:[['Tüm yaygın biçimler','PDF, EPUB, MOBI, AZW3, FB2, CBZ, CBR, DOCX, RTF, Markdown ve dahası.'],['Gerçekten dönen sayfa','Parmağını izler; köşeden, kenardan, ortadan, tek ya da çift sayfada.'],['Kendi dokunma alanların','Ekrana dikdörtgen ve daire çiz, her birine ne yapacağını söyle.'],['Gerçek kitap modu','Kağıt dokusu, cilt, ışık, yan sayfalar ve masadaki gölge.'],['Temalar','Kağıt, Parşömen, OLED, E-ink ve kendi arka planın, açık ve koyu.'],['2.100 ücretsiz font','Önizlemeli; dosya veya adresle kendi fontunu da eklersin.'],['Telefonda renklendirme','Siyah beyaz görseller internetsiz, aynı yerde aynı boyutta renklenir.'],['Sesli okuma','Sistem sesi, 31 dilde indirilebilir sesler veya kendi API anahtarın.'],['Zoom ve görseller','Her sayfaya zoom. Görsele dokun, aç, rengi aç kapat.']],
 };
 const CHANGES = {
-  en:[['0.1.0','First public version for Android. Reader, formats, themes, colorization, read aloud, picture viewer, English and Turkish.']],
-  tr:[['0.1.0','Android için ilk genel sürüm. Okuyucu, biçimler, temalar, renklendirme, sesli okuma, görsel görüntüleyici, Türkçe ve İngilizce.']],
+  en:[['0.1.1','Read aloud marks each word like a highlighter. Drag the marker or the bar to move the voice. Keeps reading with the screen off. Sepia pictures can be colorized.'],['0.1.0','First public version for Android. Reader, formats, themes, colorization, read aloud, picture viewer, English and Turkish.']],
+  tr:[['0.1.1','Sesli okuma her kelimeyi fosforlu kalem gibi işaretler. İşareti ya da çubuğu sürükleyerek sesi taşıyabilirsin. Ekran kapalıyken de okur. Sepya görseller renklendirilebilir.'],['0.1.0','Android için ilk genel sürüm. Okuyucu, biçimler, temalar, renklendirme, sesli okuma, görsel görüntüleyici, Türkçe ve İngilizce.']],
 };
 const PRIVACY = {
   en:`<p><b>Who.</b> EgeBookReader is developed by Ege BULUT. Contact: egebulut.iletisim@outlook.com.</p><p><b>What the app collects.</b> Nothing. There is no account, no analytics and no advertising. Your books, settings, bookmarks and coloured pictures stay on your device.</p><p><b>When the app uses the internet.</b> Only when you ask for something that needs it: the font list and fonts come from Fontsource and jsDelivr; colorization models from Hugging Face or Qualcomm; voices from GitHub. Those services see your IP address, as any website does.</p><p><b>API keys.</b> If you add your own read-aloud API key, the text being read is sent to the service you chose, under that service's terms. The key stays on your device.</p><p><b>This website.</b> It is hosted on Vercel, which keeps standard access logs. The site sets no cookies and has no analytics. Fonts load from Google Fonts.</p><p><b>Your rights.</b> Since the app holds no data about you on any server, deleting the app deletes everything. For questions, write to the address above.</p>`,

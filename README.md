@@ -17,7 +17,7 @@ Free, open source, no account and no ads.</p>
   <img alt="Android 7+" src="https://img.shields.io/badge/Android-7%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Flutter 3.47" src="https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter&logoColor=white">
   <img alt="Works offline" src="https://img.shields.io/badge/works-offline-7E3321">
-  <img alt="Version 0.1.0" src="https://img.shields.io/badge/version-0.1.0%20preview-F59E0B">
+  <img alt="Version 0.1.1" src="https://img.shields.io/badge/version-0.1.1%20preview-F59E0B">
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-2EA043"></a>
 </p>
 
@@ -36,7 +36,7 @@ Free, open source, no account and no ads.</p>
 </div>
 
 > [!NOTE]
-> **0.1.0 is a preview for Android.** It has been tested on an emulator and by its author on one phone. iOS, Windows, macOS and Linux will come from the same code later.
+> **0.1.1 is a preview for Android.** It has been tested on an emulator and by its author on one phone. iOS, Windows, macOS and Linux will come from the same code later.
 
 ## Why EgeBookReader
 
@@ -142,7 +142,8 @@ DRM-protected books are not opened; the app says so. PDFs have a reflow switch, 
 
 ### Read aloud
 
-- The sentence being read is highlighted and the page turns by itself.
+- Each word is marked like a yellow highlighter as it is read, and the page turns by itself.
+- Drag the bar on the player, or hold the marker and move it: the highlight follows live and the voice goes there.
 - Keeps reading with the screen off or another app in front, with pause and stop in the notification.
 - The system voice is the default. Each downloadable voice lists its languages, license and source.
 - Any service with an OpenAI-style `/audio/speech` endpoint works with your own key.

@@ -117,3 +117,9 @@ that names the old one.
 
 - A foreground service of type mediaPlayback (`ReadingService.kt`) with a partial wake lock keeps the process alive; speaking stays in Dart. Page turns skip the curl and page drawing waits while the screen is off. Asked for by the user.
 - Checked on the emulator with Supertonic: the service stayed in the foreground and reading moved on to the next chapter during 2.5 minutes asleep. Audio itself cannot be heard there; the system voice and the notification buttons were not exercised.
+
+## 2026-11-10 D14 Version 0.1.1: word highlight and seeking
+
+- `SpeechMap` in `app/lib/tts.dart` holds positions. System voices report word boundaries (a paced estimate covers engines that do not); on-device and API voices give no timings, so a word's place is its share of the sentence's letters. PDF words come from PDFium's character boxes.
+- While the bar or marker is held the voice waits and the highlight follows; on release it speaks from that word. The marker's long press is 170 ms so it wins over the page-turn gesture.
+- Checked on the emulator with Supertonic: highlight moves with speech, bar and marker both move it and the voice resumes there. Not exercised: system voice boundaries, PDF highlight.
