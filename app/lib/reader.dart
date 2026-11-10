@@ -13,6 +13,7 @@ import 'zones.dart';
 import 'settings.dart';
 import 'settings_sheet.dart';
 import 'sources.dart';
+import 'tts.dart';
 
 const _volume = MethodChannel('egebookreader/volume');
 
@@ -46,6 +47,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   Color _backdrop = Colors.transparent;
   bool _scrubbing = false;
   bool _autoStarted = false;
+  bool _speechTurning = false;
 
   PageSource? _source;
   ui.FragmentProgram? _program;
@@ -80,6 +82,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     _volume.setMethodCallHandler(_onVolume);
     colorizer.onDone = _colorizedOne;
     colorizer.addListener(_colorizerChanged);
+    speaker.addListener(_speakerChanged);
+    speaker.onFinished = _speechReachedPageEnd;
     _syncVolume();
     _volume.invokeMethod('setReading', true);
     _scroll.addListener(_onScroll);
@@ -114,6 +118,43 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       await _move.reverse();
     }
     if (mounted) Navigator.of(context).pop();
+  }
+
+  void _speakerChanged() {
+    _syncVolume();
+    if (mounted) setState(() {});
+  }
+
+  Future<List<SpokenSentence>> _sentencesHere() async {
+    final out = <SpokenSentence>[];
+    for (var i = _page; i < _page + _step && i < _count; i++) {
+      out.addAll(await _source!.sentencesOn(i));
+    }
+    return out;
+  }
+
+  Future<void> _speakFromHere() async {
+    if (_menu) _toggleMenu();
+    final list = await _sentencesHere();
+    if (!mounted) return;
+    if (list.isEmpty) {
+      _speechReachedPageEnd(); // a page of pictures: nothing to say here, so move on
+    } else {
+      speaker.start(list);
+    }
+  }
+
+  void _speechReachedPageEnd() {
+    if (!mounted) return;
+    if (!_canGo(1)) return speaker.stop();
+    _speechTurning = true;
+    if (settings.mode == TurnMode.scroll) {
+      _seek(_page + 1);
+      _speechTurning = false;
+      _speakFromHere();
+    } else {
+      _curl.currentState?.turn(1);
+    }
   }
 
   void _colorizerChanged() {
@@ -183,6 +224,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     settings.removeListener(_settingsChanged);
     colorizer.removeListener(_colorizerChanged);
+    speaker.removeListener(_speakerChanged);
+    speaker.onFinished = null;
+    speaker.stop();
     colorizer.onDone = null;
     colorizer.clearQueue();
     _volume.setMethodCallHandler(null);
@@ -208,7 +252,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     if (mounted) setState(() => _error = e is FormatException ? e.message : '$e');
   }
 
-  void _syncVolume() => _volume.invokeMethod('setEnabled', settings.volumeKeys);
+  void _syncVolume() => _volume.invokeMethod('setEnabled', settings.volumeKeys && !speaker.active);
 
   void _settingsChanged() {
     _syncVolume();
@@ -503,6 +547,10 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     setState(() => _page = (_page + dir * _step).clamp(0, max(0, _count - 1)));
     _remember();
     _renderWindow(_generation);
+    if (_speechTurning || speaker.active) {
+      _speechTurning = false;
+      _speakFromHere();
+    }
   }
 
   void _onTap(Offset at, Size size) {
@@ -632,6 +680,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                   _menuHint(c),
                   if (_error != null) _errorView(c),
                   _chrome(c),
+                  _player(c),
                   _ribbon(c, inset),
                 ]),
               ),
@@ -790,10 +839,21 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       return img == null ? const SizedBox.expand() : RawImage(image: img, fit: BoxFit.fill);
     }
 
-    Widget withBadges(int i) => Stack(fit: StackFit.expand, children: [one(i), ..._badges(i)]);
+    Widget withBadges(int i) => Stack(fit: StackFit.expand, children: [one(i), _spokenHighlight(i), ..._badges(i)]);
     return _spreadActive
         ? Row(children: [Expanded(child: withBadges(_page)), Expanded(child: withBadges(_page + 1))])
         : withBadges(_page);
+  }
+
+  /// A soft band behind the sentence being read.
+  Widget _spokenHighlight(int index) {
+    final s = speaker.current;
+    return IgnorePointer(
+      child: CustomPaint(
+        size: Size.infinite,
+        painter: _HighlightPainter(s != null && s.page == index ? s.boxes : const [], settings.palette.accent),
+      ),
+    );
   }
 
   /// A small button on each picture that can still be coloured.
@@ -844,6 +904,46 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                 : RawImage(image: img, fit: BoxFit.fill, width: page.width, height: page.height),
           );
         },
+      ),
+    );
+  }
+
+  /// Bar shown while reading aloud.
+  Widget _player(Palette c) {
+    final on = speaker.active && !_menu;
+    final d = Duration(milliseconds: settings.isEink ? 1 : 260);
+    final pad = MediaQuery.paddingOf(context);
+    Widget button(IconData icon, VoidCallback tap, {double size = 24}) =>
+        IconButton(onPressed: tap, icon: Icon(icon, color: c.ink, size: size), visualDensity: VisualDensity.compact);
+    return AnimatedPositioned(
+      duration: d,
+      curve: easeEnter,
+      left: 14,
+      right: 14,
+      bottom: on ? max(pad.bottom, 14) : -90,
+      child: Container(
+        height: 58,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: c.line)),
+        child: Row(children: [
+          const SizedBox(width: 8),
+          _SpeakingBars(color: c.accent, playing: speaker.active && !speaker.paused && !settings.isEink),
+          const Spacer(),
+          button(Icons.skip_previous_rounded, () => speaker.step(-1)),
+          button(speaker.paused ? Icons.play_arrow_rounded : Icons.pause_rounded, () => speaker.paused ? speaker.resume() : speaker.pause(), size: 30),
+          button(Icons.skip_next_rounded, () => speaker.step(1)),
+          const Spacer(),
+          TextButton(
+            onPressed: () {
+              const speeds = [0.8, 1.0, 1.25, 1.5, 2.0];
+              final next = speeds[(speeds.indexOf(settings.ttsSpeed) + 1) % speeds.length];
+              settings.update((x) => x.ttsSpeed = next);
+            },
+            style: TextButton.styleFrom(foregroundColor: c.ink, minimumSize: const Size(44, 36), padding: EdgeInsets.zero),
+            child: Text('${settings.ttsSpeed}x', style: const TextStyle(fontSize: 13)),
+          ),
+          button(Icons.close_rounded, speaker.stop, size: 21),
+        ]),
       ),
     );
   }
@@ -975,7 +1075,12 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                 const SizedBox(width: 12),
                 Text('${min(_page + 1, max(total, 1))} / $total',
                     style: TextStyle(color: c.muted, fontSize: 12, fontFeatures: const [ui.FontFeature.tabularFigures()])),
-                const SizedBox(width: 4),
+                if (settings.ttsEnabled)
+                  IconButton(
+                    tooltip: 'Sesli oku',
+                    icon: Icon(Icons.headphones_outlined, color: c.ink, size: 21),
+                    onPressed: _speakFromHere,
+                  ),
                 TextButton.icon(
                   onPressed: _openSettings,
                   style: TextButton.styleFrom(foregroundColor: c.ink),
@@ -1001,6 +1106,46 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   bool get _isPdf => widget.book.path.toLowerCase().endsWith('.pdf');
 }
 
+/// Three bars that move while a voice is reading.
+class _SpeakingBars extends StatefulWidget {
+  const _SpeakingBars({required this.color, required this.playing});
+  final Color color;
+  final bool playing;
+  @override
+  State<_SpeakingBars> createState() => _SpeakingBarsState();
+}
+
+class _SpeakingBarsState extends State<_SpeakingBars> with SingleTickerProviderStateMixin {
+  late final _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+
+  @override
+  void didUpdateWidget(_SpeakingBars old) {
+    super.didUpdateWidget(old);
+    if (widget.playing && !_c.isAnimating) _c.repeat();
+    if (!widget.playing && _c.isAnimating) _c.stop();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        builder: (_, _) => Row(mainAxisSize: MainAxisSize.min, children: [
+          for (var i = 0; i < 3; i++)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 1.5),
+              width: 3,
+              height: 8 + 13 * (0.5 + 0.5 * sin(2 * pi * (_c.value + i * 0.28))),
+              decoration: BoxDecoration(color: widget.color, borderRadius: BorderRadius.circular(1.5)),
+            ),
+        ]),
+      );
+}
+
 /// Clips away a growing circle from the bottom of the screen, where the theme was just chosen.
 class _HoleClipper extends CustomClipper<Path> {
   _HoleClipper(this.t);
@@ -1018,6 +1163,23 @@ class _HoleClipper extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(_HoleClipper old) => old.t != t;
+}
+
+class _HighlightPainter extends CustomPainter {
+  _HighlightPainter(this.boxes, this.color);
+  final List<Rect> boxes;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()..color = color.withValues(alpha: 0.2);
+    for (final b in boxes) {
+      canvas.drawRRect(RRect.fromRectAndRadius(b.inflate(1.5), const Radius.circular(3)), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HighlightPainter o) => o.boxes != boxes || o.color != color;
 }
 
 class _RibbonPainter extends CustomPainter {

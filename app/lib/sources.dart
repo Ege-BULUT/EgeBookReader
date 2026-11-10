@@ -82,6 +82,18 @@ class PageStyle {
   int get hashCode => Object.hash(paper, ink, fontSize, lineHeight, fontFamily, bold, italic, grain, actualBook, margin, justify, backgroundKey, imageSaturation, imageContrast, imageSharpen, imageUpscale);
 }
 
+/// One sentence to read aloud, with where it sits on its page when that is known.
+class SpokenSentence {
+  SpokenSentence(this.text, this.lang, this.page, this.boxes);
+  final String text;
+  final String? lang;
+  final int page;
+  final List<Rect> boxes;
+}
+
+// A full stop counts as an end only before a space or the end of the text, so "4.0" stays in one piece.
+final _sentence = RegExp(r'(?:[.!?…](?=[^\s"”’)».!?…])|[^.!?…。！？؟।])+[.!?…。！？؟।]*["”’)»]*\s*|[.!?…。！？؟।]+\s*');
+
 /// A book as a list of pages that can be drawn at any size.
 abstract class PageSource {
   String get title;
@@ -96,6 +108,9 @@ abstract class PageSource {
 
   /// The pictures on page [index], for filters and colorizing. Empty when the format has none to offer.
   Future<List<PageImage>> imagesOn(int index, Size page) async => const [];
+
+  /// The text of page [index], sentence by sentence.
+  Future<List<SpokenSentence>> sentencesOn(int index) async => const [];
 
   /// A picture to use as the cover, or null.
   Future<Uint8List?> coverBytes() async => null;
@@ -242,6 +257,15 @@ class PdfSource extends PageSource {
         paint,
       );
     }
+  }
+
+  @override
+  Future<List<SpokenSentence>> sentencesOn(int index) async {
+    final text = _joinPdfLines((await doc.pages[index].loadStructuredText()).fullText);
+    return [
+      for (final m in _sentence.allMatches(text))
+        if (m.group(0)!.trim().isNotEmpty) SpokenSentence(m.group(0)!.trim(), null, index, const []),
+    ];
   }
 
   Future<List<Rect>> _boxes(int index) => _imageBoxes[index] ??= _findImages(index);
@@ -413,7 +437,8 @@ class PageBreak extends Block {}
 sealed class Placed {}
 
 class PlacedText extends Placed {
-  PlacedText(this.painter, this.top, this.clipTop, this.clipBottom);
+  PlacedText(this.painter, this.top, this.clipTop, this.clipBottom, this.lang);
+  final String? lang;
   final TextPainter painter;
   final double top, clipTop, clipBottom;
 }
@@ -503,7 +528,7 @@ class TextSource extends PageSource {
                 continue;
               }
             }
-            pages.last.add(PlacedText(painter, y, top, top + used));
+            pages.last.add(PlacedText(painter, y, top, top + used, b.lang ?? lang));
             y += used;
             top += used;
             from = fit;
@@ -524,6 +549,29 @@ class TextSource extends PageSource {
       for (final placed in _pages[index].whereType<PlacedImage>())
         PageImage(contentId(placed.bytes), placed.rect.shift(Offset(m.left, m.top)), () async => placed.bytes),
     ];
+  }
+
+  @override
+  Future<List<SpokenSentence>> sentencesOn(int index) async {
+    final m = _marginOf(_laidOutWith!);
+    final out = <SpokenSentence>[];
+    for (final placed in _pages[index].whereType<PlacedText>()) {
+      final painter = placed.painter;
+      final start = painter.getLineBoundary(painter.getPositionForOffset(Offset(1, placed.clipTop + 1))).start;
+      final end = painter.getLineBoundary(painter.getPositionForOffset(Offset(1, placed.clipBottom - 1))).end;
+      if (end <= start) continue;
+      final text = painter.plainText.substring(start, end);
+      final shift = Offset(m.left, m.top + placed.top - placed.clipTop);
+      for (final match in _sentence.allMatches(text)) {
+        final sentence = match.group(0)!;
+        if (sentence.trim().isEmpty) continue;
+        final boxes = painter.getBoxesForSelection(
+          TextSelection(baseOffset: start + match.start, extentOffset: start + match.start + sentence.trimRight().length),
+        );
+        out.add(SpokenSentence(sentence.trim(), placed.lang, index, [for (final b in boxes) b.toRect().shift(shift)]));
+      }
+    }
+    return out;
   }
 
   TextPainter _painterFor(TextBlock b, PageStyle s, double width) {

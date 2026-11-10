@@ -133,4 +133,22 @@ void main() {
     }
     expect(prepareColorInput(red, 4, 4), isNull);
   });
+
+  testWidgets('a page is split into sentences that know where they are', (tester) async {
+    await tester.runAsync(() async {
+      final book = TextSource('t', [TextBlock([Inline('Birinci cümle burada. İkinci cümle nerede? Üçüncü! ' * 3)])], 'tr');
+      const style = PageStyle(
+        paper: Colors.white, ink: Colors.black, fontSize: 18, lineHeight: 1.5,
+        fontFamily: 'serif', bold: false, italic: false, grain: 0, actualBook: false,
+      );
+      await book.prepare(const Size(360, 640), style);
+      final sentences = await book.sentencesOn(0);
+      expect(sentences.length, 9);
+      expect(sentences.first.text, 'Birinci cümle burada.');
+      expect(sentences[1].text, 'İkinci cümle nerede?');
+      expect(sentences.first.lang, 'tr');
+      expect(sentences.every((s) => s.boxes.isNotEmpty), isTrue);
+      expect(sentences.first.boxes.first.top, greaterThanOrEqualTo(26));
+    });
+  });
 }

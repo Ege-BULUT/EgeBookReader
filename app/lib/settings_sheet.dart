@@ -11,6 +11,7 @@ import 'fonts.dart';
 import 'main.dart' show settings, themeFor;
 import 'motion.dart';
 import 'settings.dart';
+import 'tts.dart';
 import 'zones.dart';
 
 class SettingsSheet extends StatefulWidget {
@@ -26,11 +27,11 @@ class _SettingsSheetState extends State<SettingsSheet> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([settings, colorizer]),
+      listenable: Listenable.merge([settings, colorizer, voices]),
       builder: (context, _) {
         final c = settings.palette;
         final motion = motionOn(context, settings);
-        final tabs = [_themeTab, _textTab, _pageTab, _imageTab];
+        final tabs = [_themeTab, _textTab, _pageTab, _imageTab, _voiceTab];
         return Theme(
           data: themeFor(c),
           child: AnimatedContainer(
@@ -41,7 +42,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 padding: const EdgeInsets.fromLTRB(22, 18, 22, 4),
                 child: Segmented<int>(
                   value: _tab,
-                  options: const {0: 'Tema', 1: 'Yazı', 2: 'Sayfa', 3: 'Görsel'},
+                  options: const {0: 'Tema', 1: 'Yazı', 2: 'Sayfa', 3: 'Görsel', 4: 'Ses'},
                   onChanged: (v) => setState(() => _tab = v),
                 ),
               ),
@@ -217,6 +218,117 @@ class _SettingsSheetState extends State<SettingsSheet> {
 }
 
 extension on _SettingsSheetState {
+  List<Widget> _voiceTab() {
+    final s = settings;
+    final c = s.palette;
+    return [
+      Heading('Sesli okuma'),
+      Toggle('Sesli okuma düğmesini göster', s.ttsEnabled, (v) => s.update((x) => x.ttsEnabled = v)),
+      const SizedBox(height: 12),
+      Segmented<VoiceSource>(
+        value: s.voiceSource,
+        options: const {VoiceSource.system: 'Sistem', VoiceSource.model: 'İndirilen', VoiceSource.api: 'API'},
+        onChanged: (v) => s.update((x) => x.voiceSource = v),
+      ),
+      _SettledSlider(label: 'Hız', value: s.ttsSpeed, min: 0.6, max: 2, decimals: 2, suffix: 'x', onEnd: (v) => s.update((x) => x.ttsSpeed = v)),
+      if (s.voiceSource == VoiceSource.system)
+        Padding(
+          padding: const EdgeInsets.only(top: 14),
+          child: Text('Telefonun kendi ses motoru kullanılır. Kitabın diline göre ses seçilir.', style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+        ),
+      if (s.voiceSource == VoiceSource.model) ...[
+        Heading('Telefona kurulan sesler'),
+        for (final m in voiceCatalog) Padding(padding: const EdgeInsets.only(bottom: 10), child: _voiceCard(m)),
+        if (voices.error != null) Text(voices.error!, style: TextStyle(color: c.accent, fontSize: 13)),
+      ],
+      if (s.voiceSource == VoiceSource.api) ...[
+        Heading('API anahtarı'),
+        Text('OpenAI uyumlu /audio/speech ucu olan her servis çalışır. Metin bu servise gönderilir. Anahtar sadece bu telefonda saklanır.',
+            style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+        const SizedBox(height: 10),
+        _field('Adres', s.apiBase, 'https://…/v1', (v) => s.update((x) => x.apiBase = v)),
+        _field('API anahtarı', s.apiKey, '', (v) => s.update((x) => x.apiKey = v), secret: true),
+        _field('Model', s.apiModel, '', (v) => s.update((x) => x.apiModel = v)),
+        _field('Ses', s.apiVoice, '', (v) => s.update((x) => x.apiVoice = v)),
+      ],
+    ];
+  }
+
+  Widget _field(String label, String value, String hint, ValueChanged<String> onChanged, {bool secret = false}) {
+    final c = settings.palette;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: TextFormField(
+        key: ValueKey(label),
+        initialValue: value,
+        obscureText: secret,
+        autocorrect: false,
+        enableSuggestions: false,
+        onChanged: onChanged,
+        style: TextStyle(color: c.ink, fontSize: 15),
+        decoration: InputDecoration(labelText: label, hintText: hint, isDense: true, labelStyle: TextStyle(color: c.muted), hintStyle: TextStyle(color: c.muted)),
+      ),
+    );
+  }
+
+  Widget _voiceCard(VoiceModel m) {
+    final s = settings;
+    final c = s.palette;
+    final installed = voices.installed(m);
+    final selected = s.ttsModelId == m.id && installed;
+    final busy = voices.progress.containsKey(m.id);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: selected ? c.accent : Colors.transparent, width: 1.4),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(m.name, style: TextStyle(color: c.ink, fontSize: 16, fontWeight: FontWeight.w500))),
+          Text(m.size, style: TextStyle(color: c.muted, fontSize: 13)),
+        ]),
+        const SizedBox(height: 6),
+        Text('Diller: ${m.languages.map((l) => languageNames[l] ?? l).join(', ')}', style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+        const SizedBox(height: 4),
+        Text('${m.voiceCount} ses. Lisans: ${m.license}.', style: TextStyle(color: c.muted, fontSize: 13)),
+        const SizedBox(height: 2),
+        SelectableText(m.source, style: TextStyle(color: c.muted, fontSize: 12)),
+        const SizedBox(height: 8),
+        if (busy)
+          LinearProgressIndicator(value: voices.progress[m.id], minHeight: 3, color: c.accent, backgroundColor: c.line)
+        else if (!installed)
+          FilledButton(
+            onPressed: () => voices.download(m),
+            style: FilledButton.styleFrom(backgroundColor: c.accent, foregroundColor: c.paper),
+            child: const Text('İndir'),
+          )
+        else
+          Row(children: [
+            TextButton(
+              onPressed: () => s.update((x) => x.ttsModelId = m.id),
+              style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero),
+              child: Text(selected ? 'Seçili' : 'Seç'),
+            ),
+            const SizedBox(width: 16),
+            TextButton(
+              onPressed: () => voices.remove(m),
+              style: TextButton.styleFrom(foregroundColor: c.muted, padding: EdgeInsets.zero),
+              child: const Text('Sil'),
+            ),
+            const Spacer(),
+            if (selected) ...[
+              _Step(icon: Icons.remove, onTap: () => s.update((x) => x.ttsVoice = max(0, x.ttsVoice - 1))),
+              Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text('Ses ${s.ttsVoice + 1}', style: TextStyle(color: c.ink, fontSize: 14))),
+              _Step(icon: Icons.add, onTap: () => s.update((x) => x.ttsVoice = min(m.voiceCount - 1, x.ttsVoice + 1))),
+            ],
+          ]),
+      ]),
+    );
+  }
+
   List<Widget> _imageTab() {
     final s = settings;
     final c = s.palette;

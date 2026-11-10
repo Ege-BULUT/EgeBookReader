@@ -8,9 +8,10 @@ import 'dart:ui' as ui;
 import 'package:archive/archive_io.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+
+import 'onnx.dart';
 
 final colorizer = Colorizer();
 
@@ -51,7 +52,7 @@ String contentId(Uint8List b) {
 /// Colours one picture at a time, on a queue that rests between pictures so the phone stays cool.
 class Colorizer extends ChangeNotifier {
   late Directory _models, _out;
-  OrtSession? _session;
+  OnnxModel? _model;
   double? downloadProgress;
   String? error;
 
@@ -116,8 +117,8 @@ class Colorizer extends ChangeNotifier {
   }
 
   Future<void> removeModel() async {
-    await _session?.close();
-    _session = null;
+    _model?.close();
+    _model = null;
     final dir = Directory(p.join(_models.path, 'ddcolor-onnx-float'));
     if (dir.existsSync()) await dir.delete(recursive: true);
     notifyListeners();
@@ -180,8 +181,6 @@ class Colorizer extends ChangeNotifier {
     }
   }
 
-  Future<OrtSession> _open() async => _session ??= await OnnxRuntime().createSession(_modelFile.path);
-
   /// Returns false when the picture already has colour and was left alone.
   Future<bool> _colorize(Uint8List encoded, File out) async {
     final codec = await ui.instantiateImageCodec(encoded);
@@ -205,13 +204,8 @@ class Colorizer extends ChangeNotifier {
     final prepared = await Isolate.run(() => prepareColorInput(data, w, h));
     if (prepared == null) return false;
 
-    final session = await _open();
-    final input = await OrtValue.fromList(prepared.input, const [1, 3, _side, _side]);
-    final outputs = await session.run({'image': input});
-    final result = outputs.values.first;
-    final ab = Float32List.fromList((await result.asFlattenedList()).cast<double>());
-    await input.dispose();
-    await result.dispose();
+    final model = _model ??= await OnnxModel.open(_modelFile.path);
+    final ab = await model.run(prepared.input, const [1, 3, _side, _side]);
 
     final rgba = await Isolate.run(() => mergeColor(prepared, ab, w, h));
     final buffer = await ui.ImmutableBuffer.fromUint8List(rgba);

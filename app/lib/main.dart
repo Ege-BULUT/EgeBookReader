@@ -16,6 +16,7 @@ import 'motion.dart';
 import 'reader.dart';
 import 'settings.dart';
 import 'sources.dart';
+import 'tts.dart';
 
 final settings = Settings();
 final library = Library();
@@ -25,6 +26,7 @@ Future<void> main() async {
   await pdfrxFlutterInitialize();
   await fonts.load();
   await colorizer.load();
+  await voices.load();
   await settings.load();
   await library.load();
   runApp(const EgeBookReaderApp());
