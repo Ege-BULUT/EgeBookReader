@@ -1,7 +1,11 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'dart:ui' as ui;
+
 import 'package:egebookreader/curl.dart';
+import 'package:egebookreader/settings.dart';
+import 'package:egebookreader/zones.dart';
 import 'package:egebookreader/sources.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -65,6 +69,35 @@ void main() {
       }
       expect(placed.length, 60);
       placed.forEach((painter, height) => expect(height, closeTo(painter.height, 2)));
+    });
+  });
+
+  test('tap zones: the last zone drawn wins, circles stay round', () {
+    const s = Size(400, 800);
+    final zones = TapLayout.thirds()..add(TapZone.round(0.5, 0.5, 0.2, ZoneAction.bookmark));
+    final layout = TapLayout(zones, zones);
+    expect(layout.actionAt(const Offset(20, 100), s), ZoneAction.prev);
+    expect(layout.actionAt(const Offset(390, 100), s), ZoneAction.next);
+    expect(layout.actionAt(const Offset(200, 100), s), ZoneAction.menu);
+    expect(layout.actionAt(const Offset(200, 400), s), ZoneAction.bookmark); // inside the circle, over the middle third
+    expect(layout.actionAt(const Offset(200, 400 + 79), s), ZoneAction.bookmark); // radius is 0.2 of the 400 side
+    expect(layout.actionAt(const Offset(200, 400 + 81), s), ZoneAction.menu);
+  });
+
+  testWidgets('text on a busy custom background reaches 4.5:1', (tester) async {
+    await tester.runAsync(() async {
+      // Half black, half white: no single text colour can pass without the background being softened.
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder)..drawColor(Colors.white, BlendMode.src);
+      canvas.drawRect(const Rect.fromLTWH(0, 0, 32, 64), Paint()..color = Colors.black);
+      final image = await recorder.endRecording().toImage(64, 64);
+      final png = await image.toByteData(format: ui.ImageByteFormat.png);
+      final file = File('${Directory.systemTemp.createTempSync('ebr').path}/bg.png')
+        ..writeAsBytesSync(png!.buffer.asUint8List());
+      final c = CustomPaper(Colors.white)..image = file.path;
+      await measureCustomPaper(c);
+      expect(c.scrim, greaterThan(0));
+      expect(c.scrim, lessThan(0.9));
     });
   });
 }

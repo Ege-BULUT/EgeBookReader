@@ -55,3 +55,15 @@ that names the old one.
   sequence; the first open lifts the page corner once as a hint; bookmarks drop as a ribbon and mark the scrubber.
 - All of it is off in E-ink and under the system's reduced-motion setting (`motionOn` in `app/lib/motion.dart`).
 - Decided by: the user.
+
+## 2026-11-10 D7 Proof of concept 3
+
+- Tap zones (R4.1): rectangles and circles per orientation, last drawn wins, editor in `app/lib/zones.dart`.
+- Custom theme (R3.5–R3.7): colour or picture, overlay, brightness, blur, per light/dark; baked once into one image, and
+  text colour plus a softening scrim are measured so text reaches 4.5:1.
+- Font browser (R6.2, R6.3): Fontsource catalog (no key), previews in each font, TTF per script registered as fallbacks;
+  custom fonts by file or URL (TTF/OTF only so far; WOFF is refused; no OTS yet, see the `ponytail:` note in `fonts.dart`).
+- The user reported two bugs on a real phone: dark PDFs were a plain inversion including photos (fixed: `page_dark.frag`
+  plus image boxes from PDFium, read on PDFium's own isolate because its font callbacks abort on any other), and volume keys
+  did nothing in flip mode. The volume keys worked on the emulator; the one difference found was that they were off
+  while the menu was open, so that was removed. Not confirmed on the user's phone yet.

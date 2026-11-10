@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import 'fonts.dart';
 import 'motion.dart';
 import 'reader.dart';
 import 'settings.dart';
@@ -20,6 +21,7 @@ final library = Library();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await pdfrxFlutterInitialize();
+  await fonts.load();
   await settings.load();
   await library.load();
   runApp(const EgeBookReaderApp());
@@ -279,8 +281,9 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
       body: Stack(children: [
         SafeArea(
           child: ListenableBuilder(
-            listenable: library,
+            listenable: Listenable.merge([library, settings]),
             builder: (context, _) {
+              final c = settings.palette;
               final latest = library.books.where((b) => b.total > 0).firstOrNull;
               return CustomScrollView(
               slivers: [

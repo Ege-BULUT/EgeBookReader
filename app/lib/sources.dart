@@ -1,13 +1,16 @@
 import 'dart:convert';
+import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:archive/archive.dart';
+import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html;
 import 'package:path/path.dart' as p;
+import 'package:pdfium_dart/pdfium_dart.dart' as pdfium_api;
 import 'package:pdfrx/pdfrx.dart';
 import 'package:xml/xml.dart';
 
@@ -19,16 +22,25 @@ class PageStyle {
     required this.fontSize,
     required this.lineHeight,
     required this.fontFamily,
+    this.fontFallback = const [],
     required this.bold,
     required this.italic,
+    this.margin = 26,
+    this.justify = true,
     required this.grain,
     required this.actualBook,
+    this.backgroundKey,
   });
 
   final Color paper, ink;
   final double fontSize, lineHeight;
   final String fontFamily;
-  final bool bold, italic;
+  final List<String> fontFallback;
+  final bool bold, italic, justify;
+  final double margin;
+
+  /// Identifies a composed custom background; null when the paper is a plain colour.
+  final String? backgroundKey;
 
   /// Strength of the paper grain, 0 for none.
   final double grain;
@@ -47,10 +59,13 @@ class PageStyle {
       other.bold == bold &&
       other.italic == italic &&
       other.grain == grain &&
-      other.actualBook == actualBook;
+      other.actualBook == actualBook &&
+      other.margin == margin &&
+      other.justify == justify &&
+      other.backgroundKey == backgroundKey;
 
   @override
-  int get hashCode => Object.hash(paper, ink, fontSize, lineHeight, fontFamily, bold, italic, grain, actualBook);
+  int get hashCode => Object.hash(paper, ink, fontSize, lineHeight, fontFamily, bold, italic, grain, actualBook, margin, justify, backgroundKey);
 }
 
 /// A book as a list of pages that can be drawn at any size.
@@ -75,7 +90,7 @@ Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
   switch (p.extension(path).toLowerCase()) {
     case '.pdf':
       final doc = await PdfDocument.openFile(path);
-      return reflowPdf ? await PdfReflowSource.create(doc, _titleOf(path)) : PdfSource(doc, _titleOf(path));
+      return reflowPdf ? await PdfReflowSource.create(doc, _titleOf(path)) : PdfSource(doc, _titleOf(path), path);
     case '.epub':
       return EpubSource.parse(await File(path).readAsBytes(), _titleOf(path));
     case '.cbz':
@@ -104,8 +119,11 @@ Future<String> _readText(String path) async {
 // PDF
 
 class PdfSource extends PageSource {
-  PdfSource(this.doc, this.title);
+  PdfSource(this.doc, this.title, this.path);
   final PdfDocument doc;
+  final String path;
+  final _imageBoxes = <int, Future<List<Rect>>>{};
+  static ui.FragmentProgram? _darkProgram;
   @override
   final String title;
   @override
@@ -134,19 +152,51 @@ class PdfSource extends PageSource {
     rendered.dispose();
     final dst = Rect.fromLTWH((page.width - w) / 2, (page.height - h) / 2, w, h);
     final src = Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble());
-    canvas.drawImageRect(image, src, dst, _pdfPaint(style));
+    if (style.darkPaper) {
+      await _paintDark(canvas, index, image, src, dst, scale, style);
+    } else {
+      canvas.drawImageRect(image, src, dst, Paint()..filterQuality = FilterQuality.medium..blendMode = BlendMode.multiply);
+    }
     image.dispose();
   }
 
-  // ponytail: dark themes invert the whole page, photos included; per-image handling comes with the real engine.
-  Paint _pdfPaint(PageStyle s) => s.darkPaper
-      ? (Paint()
-        ..filterQuality = FilterQuality.medium
-        ..blendMode = BlendMode.screen
-        ..colorFilter = const ColorFilter.matrix(<double>[-1, 0, 0, 0, 255, 0, -1, 0, 0, 255, 0, 0, -1, 0, 255, 0, 0, 0, 1, 0]))
-      : (Paint()
-        ..filterQuality = FilterQuality.medium
-        ..blendMode = BlendMode.multiply);
+  /// The page's type and drawings take the theme's colours; photographs are put back as they were, slightly dimmed.
+  Future<void> _paintDark(Canvas canvas, int index, ui.Image image, Rect src, Rect dst, double scale, PageStyle s) async {
+    final program = _darkProgram ??= await ui.FragmentProgram.fromAsset('shaders/page_dark.frag');
+    final shader = program.fragmentShader();
+    final values = [dst.left, dst.top, dst.width, dst.height, s.paper.r, s.paper.g, s.paper.b, s.ink.r, s.ink.g, s.ink.b];
+    for (var i = 0; i < values.length; i++) {
+      shader.setFloat(i, values[i]);
+    }
+    shader.setImageSampler(0, image);
+    canvas.drawRect(dst, Paint()..shader = shader);
+    const dim = ColorFilter.matrix(<double>[.88, 0, 0, 0, 0, 0, .88, 0, 0, 0, 0, 0, .88, 0, 0, 0, 0, 0, 1, 0]);
+    final paint = Paint()
+      ..filterQuality = FilterQuality.medium
+      ..colorFilter = dim;
+    final toPixels = image.width / dst.width;
+    for (final box in await (_imageBoxes[index] ??= _findImages(index))) {
+      final r = Rect.fromLTRB(box.left * scale, box.top * scale, box.right * scale, box.bottom * scale);
+      final onPage = r.shift(dst.topLeft).intersect(dst);
+      if (onPage.isEmpty) continue;
+      canvas.drawImageRect(
+        image,
+        Rect.fromLTRB(
+          (onPage.left - dst.left) * toPixels,
+          (onPage.top - dst.top) * toPixels,
+          (onPage.right - dst.left) * toPixels,
+          (onPage.bottom - dst.top) * toPixels,
+        ),
+        onPage,
+        paint,
+      );
+    }
+  }
+
+  Future<List<Rect>> _findImages(int index) async {
+    final boxes = await PdfrxEntryFunctions.instance.compute(_imageBoxesOnWorker, (path, index, doc.pages[index].height));
+    return [for (final b in boxes) Rect.fromLTRB(b[0], b[1], b[2], b[3])];
+  }
 
   Future<ui.Image> _toImage(PdfImage img) async {
     final buffer = await ui.ImmutableBuffer.fromUint8List(img.pixels);
@@ -166,6 +216,32 @@ class PdfSource extends PageSource {
 
   @override
   void dispose() => doc.dispose();
+}
+
+// Must run on PDFium's own isolate: PDFium calls back into Dart for fonts, and those callbacks belong to it.
+// ponytail: top-level images on unrotated pages only; images nested in form objects still get dark-mapped.
+List<List<double>> _imageBoxesOnWorker((String, int, double) job) {
+  final (path, index, height) = job;
+  final api = pdfium_api.getPdfium();
+  return using((arena) {
+    final document = api.FPDF_LoadDocument(path.toNativeUtf8(allocator: arena).cast(), ffi.nullptr);
+    if (document == ffi.nullptr) return const <List<double>>[];
+    final page = api.FPDF_LoadPage(document, index);
+    final out = <List<double>>[];
+    if (page != ffi.nullptr && api.FPDFPage_GetRotation(page) == 0) {
+      final l = arena<ffi.Float>(), b = arena<ffi.Float>(), r = arena<ffi.Float>(), t = arena<ffi.Float>();
+      for (var i = api.FPDFPage_CountObjects(page) - 1; i >= 0; i--) {
+        final object = api.FPDFPage_GetObject(page, i);
+        if (api.FPDFPageObj_GetType(object) != pdfium_api.FPDF_PAGEOBJ_IMAGE) continue;
+        if (api.FPDFPageObj_GetBounds(object, l, b, r, t) != 0) {
+          out.add([l.value, height - t.value, r.value, height - b.value]);
+        }
+      }
+    }
+    if (page != ffi.nullptr) api.FPDF_ClosePage(page);
+    api.FPDF_CloseDocument(document);
+    return out;
+  });
 }
 
 /// PDF text poured into the text layout. Pictures are left out for now.
@@ -273,7 +349,7 @@ class TextSource extends PageSource {
   @override
   int get pageCount => _pages.length;
 
-  static const _margin = EdgeInsets.fromLTRB(26, 34, 26, 38);
+  static EdgeInsets _marginOf(PageStyle s) => EdgeInsets.fromLTRB(s.margin, s.margin + 8, s.margin, s.margin + 12);
 
   @override
   Future<void> prepare(Size page, PageStyle style, {void Function(double)? onProgress}) async {
@@ -282,8 +358,9 @@ class TextSource extends PageSource {
         if (placed is PlacedText) placed.painter.dispose();
       }
     }
-    final width = page.width - _margin.horizontal;
-    final height = page.height - _margin.vertical;
+    final margin = _marginOf(style);
+    final width = page.width - margin.horizontal;
+    final height = page.height - margin.vertical;
     final pages = <List<Placed>>[[]];
     var y = 0.0;
 
@@ -356,6 +433,7 @@ class TextSource extends PageSource {
     TextStyle styleFor(Inline i) => TextStyle(
           color: s.ink,
           fontFamily: s.fontFamily,
+          fontFamilyFallback: s.fontFallback,
           fontSize: size,
           height: b.heading > 0 ? 1.25 : s.lineHeight,
           fontWeight: (s.bold || i.bold || b.heading > 0) ? FontWeight.w600 : FontWeight.w400,
@@ -366,7 +444,7 @@ class TextSource extends PageSource {
     final painter = TextPainter(
       text: TextSpan(children: [for (final i in inlines) TextSpan(text: i.text, style: styleFor(i))]),
       textDirection: _isRtl(locale) ? TextDirection.rtl : TextDirection.ltr,
-      textAlign: b.heading > 0 ? TextAlign.start : TextAlign.justify,
+      textAlign: b.heading == 0 && s.justify ? TextAlign.justify : TextAlign.start,
       locale: locale,
     )..layout(maxWidth: width);
     return painter;
@@ -396,7 +474,7 @@ class TextSource extends PageSource {
   @override
   Future<void> paint(Canvas canvas, int index, Size page, PageStyle style) async {
     canvas.save();
-    canvas.translate(_margin.left, _margin.top);
+    canvas.translate(_marginOf(style).left, _marginOf(style).top);
     for (final placed in _pages[index]) {
       switch (placed) {
         case PlacedText(:final painter, :final top, :final clipTop, :final clipBottom):

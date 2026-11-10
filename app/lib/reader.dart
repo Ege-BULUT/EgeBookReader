@@ -8,7 +8,9 @@ import 'package:flutter/services.dart';
 import 'curl.dart';
 import 'main.dart';
 import 'motion.dart';
+import 'zones.dart';
 import 'settings.dart';
+import 'settings_sheet.dart';
 import 'sources.dart';
 
 const _volume = MethodChannel('egebookreader/volume');
@@ -65,6 +67,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   final _images = <int, ui.Image>{};
   final _rendering = <int>{};
   ui.Image? _blank;
+  ui.Image? _customBackground;
 
   @override
   void initState() {
@@ -136,6 +139,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       i.dispose();
     }
     _blank?.dispose();
+    _customBackground?.dispose();
     _grain?.dispose();
     super.dispose();
   }
@@ -144,7 +148,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     if (mounted) setState(() => _error = e is FormatException ? e.message : '$e');
   }
 
-  void _syncVolume() => _volume.invokeMethod('setEnabled', settings.volumeKeys && !_menu);
+  void _syncVolume() => _volume.invokeMethod('setEnabled', settings.volumeKeys);
 
   void _settingsChanged() {
     _syncVolume();
@@ -214,6 +218,17 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       });
       if (!mounted || generation != _generation) return;
       _page = _align((fraction * _count).round().clamp(0, max(0, _count - 1)).toInt());
+      if (style.backgroundKey != null) {
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final next = await composeCustomPaper(settings.custom, (page.width * dpr).ceil(), (page.height * dpr).ceil(), dpr);
+        if (!mounted || generation != _generation) {
+          next.dispose();
+          return;
+        }
+        final old = _customBackground;
+        _customBackground = next;
+        WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+      }
       _blank = await _renderOne(-1, page, style);
       await _renderWindow(generation, first: true);
       if (!mounted || generation != _generation) return;
@@ -289,7 +304,17 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder)..scale(dpr);
-    canvas.drawColor(s.paper, BlendMode.src);
+    final background = _customBackground;
+    if (s.backgroundKey != null && background != null) {
+      canvas.drawImageRect(
+        background,
+        Rect.fromLTWH(0, 0, background.width.toDouble(), background.height.toDouble()),
+        Offset.zero & page,
+        Paint(),
+      );
+    } else {
+      canvas.drawColor(s.paper, BlendMode.src);
+    }
     if (index >= 0) await _source!.paint(canvas, index, page, s);
     _bakePaper(canvas, Offset.zero & page, s, index);
     final picture = recorder.endRecording();
@@ -388,13 +413,17 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   void _onTap(Offset at, Size size) {
     if (_menu) return _toggleMenu();
-    final x = at.dx / size.width;
-    if (x < 0.3) {
-      _curl.currentState?.turn(-1);
-    } else if (x > 0.7) {
-      _curl.currentState?.turn(1);
-    } else {
-      _toggleMenu();
+    switch (settings.zones.actionAt(at, size)) {
+      case ZoneAction.prev:
+        _curl.currentState?.turn(-1);
+      case ZoneAction.next:
+        _curl.currentState?.turn(1);
+      case ZoneAction.menu:
+        _toggleMenu();
+      case ZoneAction.bookmark:
+        _toggleBookmark();
+      case ZoneAction.none:
+        break;
     }
   }
 
@@ -841,7 +870,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => FractionallySizedBox(heightFactor: 0.72, child: _SettingsSheet(isPdf: _isPdf)),
+      builder: (_) => FractionallySizedBox(heightFactor: 0.72, child: SettingsSheet(isPdf: _isPdf)),
     );
   }
 
@@ -944,223 +973,4 @@ class _BookBedPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_BookBedPainter o) => o.book != book || o.spread != spread || o.read != read || o.edge != edge;
-}
-
-class _SettingsSheet extends StatelessWidget {
-  const _SettingsSheet({required this.isPdf});
-  final bool isPdf;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: settings,
-      builder: (context, _) {
-        final c = settings.palette;
-        final s = settings;
-        return Theme(
-          data: themeFor(c),
-          child: AnimatedContainer(
-            duration: Duration(milliseconds: s.isEink ? 1 : 200),
-            color: c.paper,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(22, 22, 22, 30),
-              children: _risen(context, [
-                _Heading('Tema'),
-                Row(children: [
-                  for (final t in PaperTheme.values) ...[
-                    Expanded(child: _ThemeSwatch(theme: t)),
-                    if (t != PaperTheme.values.last) const SizedBox(width: 10),
-                  ],
-                ]),
-                const SizedBox(height: 12),
-                _Segmented<bool>(
-                  value: s.dark,
-                  options: const {false: 'Açık', true: 'Koyu'},
-                  onChanged: (v) => s.update((x) => x.dark = v),
-                ),
-                _Heading('Yazı'),
-                Row(children: [
-                  _Step(icon: Icons.remove, onTap: () => s.update((x) => x.fontSize = max(12, x.fontSize - 1))),
-                  Expanded(
-                    child: Text('${s.fontSize.round()}',
-                        textAlign: TextAlign.center, style: TextStyle(color: c.ink, fontSize: 16)),
-                  ),
-                  _Step(icon: Icons.add, onTap: () => s.update((x) => x.fontSize = min(36, x.fontSize + 1))),
-                ]),
-                const SizedBox(height: 12),
-                _Segmented<String>(
-                  value: s.fontFamily,
-                  options: const {'serif': 'Serif', 'sans-serif': 'Sans'},
-                  onChanged: (v) => s.update((x) => x.fontFamily = v),
-                ),
-                _Toggle('Kalın', s.bold, (v) => s.update((x) => x.bold = v)),
-                _Toggle('İtalik', s.italic, (v) => s.update((x) => x.italic = v)),
-                if (isPdf) _Toggle('Reflow (PDF metnini yeniden diz)', s.reflow, (v) => s.update((x) => x.reflow = v)),
-                _Heading('Sayfa çevirme'),
-                _Segmented<TurnMode>(
-                  value: s.mode,
-                  options: const {TurnMode.flip: 'Flip', TurnMode.tap: 'Dokunma', TurnMode.scroll: 'Kaydırma'},
-                  onChanged: (v) => s.update((x) => x.mode = v),
-                ),
-                if (s.mode == TurnMode.scroll) ...[
-                  const SizedBox(height: 16),
-                  Text('Sayfalar arası boşluk: ${s.scrollGap.round()} px', style: TextStyle(color: c.muted, fontSize: 13)),
-                  const SizedBox(height: 10),
-                  Slider(value: s.scrollGap, max: 40, onChanged: (v) => s.update((x) => x.scrollGap = v)),
-                ],
-                _Toggle('Ses tuşlarıyla çevir', s.volumeKeys, (v) => s.update((x) => x.volumeKeys = v)),
-                _Toggle('Ses tuşlarını ters çevir', s.invertVolume, (v) => s.update((x) => x.invertVolume = v)),
-                _Heading('Gerçek kitap'),
-                _Toggle(
-                  s.isEink ? 'Gerçek kitap modu (E-ink\'te kapalı)' : 'Gerçek kitap modu',
-                  s.actualBook,
-                  (v) => s.update((x) => x.actualBook = v),
-                ),
-              ]),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  List<Widget> _risen(BuildContext context, List<Widget> items) => [
-        for (final (i, item) in items.indexed)
-          Rise(index: i, enabled: motionOn(context, settings), child: item),
-      ];
-}
-
-class _Heading extends StatelessWidget {
-  const _Heading(this.text);
-  final String text;
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: 22, bottom: 12),
-        child: Text(text,
-            style: TextStyle(color: settings.palette.ink, fontFamily: 'serif', fontSize: 19, fontWeight: FontWeight.w500)),
-      );
-}
-
-class _ThemeSwatch extends StatelessWidget {
-  const _ThemeSwatch({required this.theme});
-  final PaperTheme theme;
-  static const _names = {
-    PaperTheme.paper: 'Kağıt',
-    PaperTheme.parchment: 'Parşömen',
-    PaperTheme.oled: 'OLED',
-    PaperTheme.eink: 'E-ink',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final p = palettes[(theme, settings.dark)]!;
-    final selected = settings.theme == theme;
-    final c = settings.palette;
-    return GestureDetector(
-      onTap: () => settings.update((x) => x.theme = theme),
-      child: AnimatedContainer(
-        duration: Duration(milliseconds: settings.isEink ? 1 : 160),
-        height: 74,
-        decoration: BoxDecoration(
-          color: p.paper,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: selected ? c.accent : c.line, width: selected ? 1.6 : 1),
-        ),
-        alignment: Alignment.center,
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text('Aa', style: TextStyle(color: p.ink, fontFamily: 'serif', fontSize: 20)),
-          const SizedBox(height: 2),
-          Text(_names[theme]!, style: TextStyle(color: p.muted, fontSize: 11)),
-        ]),
-      ),
-    );
-  }
-}
-
-class _Segmented<T> extends StatelessWidget {
-  const _Segmented({required this.value, required this.options, required this.onChanged, super.key});
-  final T value;
-  final Map<T, String> options;
-  final ValueChanged<T> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = settings.palette;
-    final keys = options.keys.toList();
-    final index = keys.indexOf(value);
-    return Container(
-      height: 40,
-      decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(6)),
-      child: LayoutBuilder(builder: (context, box) {
-        final w = box.maxWidth / keys.length;
-        return Stack(children: [
-          AnimatedPositioned(
-            duration: Duration(milliseconds: settings.isEink ? 1 : 240),
-            curve: const Cubic(0.22, 1, 0.36, 1),
-            left: index * w + 3,
-            top: 3,
-            bottom: 3,
-            width: w - 6,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: c.paper,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: c.line),
-              ),
-            ),
-          ),
-          Row(children: [
-            for (final k in keys)
-              Expanded(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => onChanged(k),
-                  child: Center(
-                    child: Text(options[k]!,
-                        style: TextStyle(color: k == value ? c.ink : c.muted, fontSize: 14, fontWeight: FontWeight.w500)),
-                  ),
-                ),
-              ),
-          ]),
-        ]);
-      }),
-    );
-  }
-}
-
-class _Step extends StatelessWidget {
-  const _Step({required this.icon, required this.onTap});
-  final IconData icon;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) {
-    final c = settings.palette;
-    return Material(
-      color: c.surface,
-      borderRadius: BorderRadius.circular(6),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(6),
-        onTap: onTap,
-        child: SizedBox(width: 54, height: 40, child: Icon(icon, color: c.ink, size: 20)),
-      ),
-    );
-  }
-}
-
-class _Toggle extends StatelessWidget {
-  const _Toggle(this.label, this.value, this.onChanged);
-  final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-  @override
-  Widget build(BuildContext context) {
-    final c = settings.palette;
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Row(children: [
-        Expanded(child: Text(label, style: TextStyle(color: c.ink, fontSize: 15))),
-        Switch(value: value, onChanged: onChanged, activeThumbColor: c.accent),
-      ]),
-    );
-  }
 }

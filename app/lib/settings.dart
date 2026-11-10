@@ -1,13 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'fonts.dart';
 import 'sources.dart';
+import 'zones.dart';
 
-enum PaperTheme { paper, parchment, oled, eink }
+enum PaperTheme { paper, parchment, oled, eink, custom }
 
 enum TurnMode { flip, tap, scroll }
 
@@ -34,6 +37,114 @@ const palettes = <(PaperTheme, bool), Palette>{
   (PaperTheme.eink, true): Palette(Color(0xFF000000), Color(0xFFFFFFFF), Color(0xFFFFFFFF), 0),
 };
 
+/// The user's own background: a colour or a picture, with a tinted overlay, brightness and blur.
+class CustomPaper {
+  CustomPaper(this.color);
+  Color color;
+  String? image;
+  Color overlay = Colors.black;
+  double overlayAlpha = 0;
+  double brightness = 1;
+  double blur = 0;
+
+  // Worked out by measuring the result, so text stays readable on any picture.
+  Color paper = Colors.white, ink = Colors.black;
+  double scrim = 0;
+
+  /// Changes when the composed background would look different.
+  String get key => '${color.toARGB32()}|$image|${overlay.toARGB32()}|$overlayAlpha|$brightness|$blur|$scrim';
+
+  Map<String, dynamic> toJson() => {
+        'color': color.toARGB32(), 'image': image, 'overlay': overlay.toARGB32(), 'overlayAlpha': overlayAlpha,
+        'brightness': brightness, 'blur': blur, 'paper': paper.toARGB32(), 'ink': ink.toARGB32(), 'scrim': scrim,
+      };
+
+  void readJson(Map<String, dynamic> j) {
+    color = Color(j['color'] as int);
+    image = j['image'] as String?;
+    overlay = Color(j['overlay'] as int);
+    overlayAlpha = (j['overlayAlpha'] as num).toDouble();
+    brightness = (j['brightness'] as num).toDouble();
+    blur = (j['blur'] as num).toDouble();
+    paper = Color(j['paper'] as int);
+    ink = Color(j['ink'] as int);
+    scrim = (j['scrim'] as num).toDouble();
+  }
+}
+
+/// Bakes the custom background into one image, so reading costs nothing per frame.
+Future<ui.Image> composeCustomPaper(CustomPaper c, int w, int h, double blurScale) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final rect = Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble());
+  final b = c.brightness;
+  final dim = ColorFilter.matrix(<double>[b, 0, 0, 0, 0, 0, b, 0, 0, 0, 0, 0, b, 0, 0, 0, 0, 0, 1, 0]);
+  canvas.drawRect(rect, Paint()..color = c.color..colorFilter = dim);
+  final path = c.image;
+  if (path != null && File(path).existsSync()) {
+    final codec = await ui.instantiateImageCodec(await File(path).readAsBytes(), targetHeight: h);
+    final frame = await codec.getNextFrame();
+    codec.dispose();
+    final img = frame.image;
+    final size = Size(img.width.toDouble(), img.height.toDouble());
+    final fit = applyBoxFit(BoxFit.cover, size, rect.size);
+    final src = Alignment.center.inscribe(fit.source, Offset.zero & size);
+    final sigma = c.blur * blurScale;
+    canvas.save();
+    canvas.clipRect(rect);
+    canvas.drawImageRect(
+      img,
+      src,
+      sigma > 0 ? rect.inflate(sigma * 3) : rect,
+      Paint()
+        ..filterQuality = FilterQuality.medium
+        ..colorFilter = dim
+        ..imageFilter = sigma > 0 ? ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma, tileMode: TileMode.clamp) : null,
+    );
+    canvas.restore();
+    img.dispose();
+  }
+  canvas.drawRect(rect, Paint()..color = c.overlay.withValues(alpha: c.overlayAlpha));
+  if (c.scrim > 0) {
+    final light = c.ink.computeLuminance() < 0.5;
+    canvas.drawRect(rect, Paint()..color = (light ? Colors.white : Colors.black).withValues(alpha: c.scrim));
+  }
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(w, h);
+  picture.dispose();
+  return image;
+}
+
+/// Picks the text colour with the better worst case over the background, and if even that stays under
+/// 4.5:1, fades the background toward the opposite of the text until it passes.
+Future<void> measureCustomPaper(CustomPaper c) async {
+  c.scrim = 0;
+  for (var attempt = 0; attempt < 7; attempt++) {
+    final image = await composeCustomPaper(c, 64, 64, 0.1);
+    final data = await image.toByteData();
+    image.dispose();
+    final px = data!.buffer.asUint8List();
+    final lum = <double>[];
+    var r = 0, g = 0, b = 0;
+    for (var i = 0; i < px.length; i += 4) {
+      r += px[i];
+      g += px[i + 1];
+      b += px[i + 2];
+      lum.add(Color.fromARGB(255, px[i], px[i + 1], px[i + 2]).computeLuminance());
+    }
+    lum.sort();
+    final low = lum[(lum.length * 0.05).floor()], high = lum[(lum.length * 0.95).floor()];
+    final n = px.length ~/ 4;
+    c.paper = Color.fromARGB(255, r ~/ n, g ~/ n, b ~/ n);
+    final darkInk = (low + 0.05) / (0.008 + 0.05);
+    final lightInk = (0.88 + 0.05) / (high + 0.05);
+    if (attempt == 0) c.ink = darkInk >= lightInk ? const Color(0xFF141414) : const Color(0xFFF2F2F2);
+    final usesDark = c.ink.computeLuminance() < 0.5;
+    if ((usesDark ? darkInk : lightInk) >= 4.5) return;
+    c.scrim += 0.12;
+  }
+}
+
 class Settings extends ChangeNotifier {
   PaperTheme theme = PaperTheme.paper;
   bool dark = false;
@@ -41,14 +152,30 @@ class Settings extends ChangeNotifier {
   double scrollGap = 2;
   double fontSize = 18;
   double lineHeight = 1.5;
+  double margin = 26;
+  bool justify = true;
   String fontFamily = 'serif';
+  Color? inkOverride;
   bool bold = false, italic = false;
   bool volumeKeys = true, invertVolume = false;
   bool reflow = false;
   bool actualBook = false;
   bool menuHintSeen = false;
+  final customLight = CustomPaper(const Color(0xFFE9EEF0));
+  final customDark = CustomPaper(const Color(0xFF12202A))
+    ..paper = const Color(0xFF12202A)
+    ..ink = const Color(0xFFF2F2F2);
+  TapLayout zones = TapLayout.standard();
 
-  Palette get palette => palettes[(theme, dark)]!;
+  CustomPaper get custom => dark ? customDark : customLight;
+
+  Palette paletteFor(PaperTheme t, bool isDark) {
+    if (t != PaperTheme.custom) return palettes[(t, isDark)]!;
+    final c = isDark ? customDark : customLight;
+    return Palette(c.paper, c.ink, Color.lerp(c.ink, c.paper, 0.32)!, 0);
+  }
+
+  Palette get palette => paletteFor(theme, dark);
   bool get isEink => theme == PaperTheme.eink;
 
   /// E-ink panels get no filters at all, whatever else is on.
@@ -56,20 +183,25 @@ class Settings extends ChangeNotifier {
 
   PageStyle get pageStyle => PageStyle(
         paper: palette.paper,
-        ink: palette.ink,
+        ink: inkOverride ?? palette.ink,
         fontSize: fontSize,
         lineHeight: lineHeight,
         fontFamily: fontFamily,
+        fontFallback: fonts.fallbacksOf(fontFamily),
         bold: bold || isEink,
         italic: italic,
-        grain: isEink ? 0 : (palette.grain + (actualBook ? 0.35 : 0)).clamp(0, 1),
+        margin: margin,
+        justify: justify,
+        grain: isEink || theme == PaperTheme.custom ? 0 : (palette.grain + (actualBook ? 0.35 : 0)).clamp(0, 1),
         actualBook: bookFilters,
+        backgroundKey: theme == PaperTheme.custom ? custom.key : null,
       );
 
   late final File _file;
+  late final Directory dir;
 
   Future<void> load() async {
-    final dir = await getApplicationDocumentsDirectory();
+    dir = await getApplicationDocumentsDirectory();
     _file = File(p.join(dir.path, 'settings.json'));
     if (!_file.existsSync()) return;
     try {
@@ -88,6 +220,13 @@ class Settings extends ChangeNotifier {
       reflow = j['reflow'] as bool;
       actualBook = j['actualBook'] as bool;
       menuHintSeen = j['menuHintSeen'] as bool? ?? false;
+      margin = (j['margin'] as num?)?.toDouble() ?? margin;
+      justify = j['justify'] as bool? ?? justify;
+      final ink = j['inkOverride'] as int?;
+      inkOverride = ink == null ? null : Color(ink);
+      if (j['customLight'] != null) customLight.readJson(j['customLight'] as Map<String, dynamic>);
+      if (j['customDark'] != null) customDark.readJson(j['customDark'] as Map<String, dynamic>);
+      if (j['zones'] != null) zones = TapLayout.fromJson(j['zones'] as Map<String, dynamic>);
     } catch (_) {
       // A settings file from another version is not worth stopping the app for.
     }
@@ -111,6 +250,19 @@ class Settings extends ChangeNotifier {
       'reflow': reflow,
       'actualBook': actualBook,
       'menuHintSeen': menuHintSeen,
+      'margin': margin,
+      'justify': justify,
+      'inkOverride': inkOverride?.toARGB32(),
+      'customLight': customLight.toJson(),
+      'customDark': customDark.toJson(),
+      'zones': zones.toJson(),
     }));
+  }
+
+  /// Changes the custom background and measures the result before anything draws with it.
+  Future<void> updateCustom(void Function(CustomPaper) change) async {
+    change(custom);
+    await measureCustomPaper(custom);
+    update((_) {});
   }
 }
