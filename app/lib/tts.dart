@@ -382,6 +382,11 @@ class Speaker extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A new speed is heard from the current word, not only from the next sentence.
+  void applySpeed() {
+    if (active && !paused && !scrubbing) _play();
+  }
+
   /// The finger took hold of the bar or the marker: the voice waits until it lets go.
   void beginScrub() {
     if (scrubbing) return;

@@ -51,6 +51,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   bool _scrubbing = false;
   bool _autoStarted = false;
   bool _speechTurning = false;
+  bool _speedOpen = false, _speedHeld = false;
 
   PageSource? _source;
   ui.FragmentProgram? _program;
@@ -671,6 +672,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   void _onTap(Offset at, Size size) {
+    if (_speedOpen) return setState(() => _speedOpen = false);
     if (_menu) return _toggleMenu();
     final action = settings.zones.actionAt(at, size);
     // In Tap mode the side zones are how pages turn, so they keep working over pictures.
@@ -802,6 +804,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                   if (_error != null) _errorView(c),
                   _chrome(c),
                   _player(c),
+                  _speedPanel(c),
                   _ribbon(c, inset),
                 ]),
               ),
@@ -1099,6 +1102,48 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     );
   }
 
+  void _setSpeed(double value) {
+    final rounded = (value * 10).round() / 10;
+    if (rounded != settings.ttsSpeed) settings.update((x) => x.ttsSpeed = rounded);
+  }
+
+  /// Opens above the player when its speed button is held.
+  Widget _speedPanel(Palette c) {
+    final width = MediaQuery.sizeOf(context).width;
+    final on = _speedOpen && speaker.active && !_menu;
+    return Positioned(
+      left: width * 0.05,
+      width: width * 0.9,
+      bottom: max(MediaQuery.paddingOf(context).bottom, 14) + 92,
+      child: IgnorePointer(
+        ignoring: !on,
+        child: AnimatedOpacity(
+          opacity: on ? 1 : 0,
+          duration: Duration(milliseconds: settings.isEink ? 1 : 140),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: c.line)),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text('${settings.ttsSpeed.toStringAsFixed(1)}x', style: TextStyle(color: c.ink, fontSize: 15, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 10),
+              Slider(
+                value: settings.ttsSpeed.clamp(0.5, 3.0),
+                min: 0.5,
+                max: 3,
+                divisions: 25,
+                onChanged: _setSpeed,
+                onChangeEnd: (_) {
+                  speaker.applySpeed();
+                  setState(() => _speedOpen = false);
+                },
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Bar shown while reading aloud.
   Widget _player(Palette c) {
     final on = speaker.active && !_menu;
@@ -1136,14 +1181,36 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
           button(speaker.paused ? Icons.play_arrow_rounded : Icons.pause_rounded, () => speaker.paused ? speaker.resume() : speaker.pause(), size: 30),
           button(Icons.skip_next_rounded, () => speaker.step(1)),
           const Spacer(),
-          TextButton(
-            onPressed: () {
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
               const speeds = [0.8, 1.0, 1.2, 1.5, 2.0, 3.0];
               final next = speeds[(speeds.indexOf(settings.ttsSpeed) + 1) % speeds.length];
               settings.update((x) => x.ttsSpeed = next);
+              speaker.applySpeed();
             },
-            style: TextButton.styleFrom(foregroundColor: c.ink, minimumSize: const Size(44, 36), padding: EdgeInsets.zero),
-            child: Text('${settings.ttsSpeed}x', style: const TextStyle(fontSize: 13)),
+            onLongPressStart: (_) {
+              HapticFeedback.selectionClick();
+              _speedHeld = false;
+              setState(() => _speedOpen = true);
+            },
+            // The finger that opened the slider can carry on and move it.
+            onLongPressMoveUpdate: (d) {
+              _speedHeld = true;
+              final width = MediaQuery.sizeOf(context).width * 0.9 - 40;
+              final left = MediaQuery.sizeOf(context).width * 0.05 + 20;
+              _setSpeed(0.5 + 2.5 * ((d.globalPosition.dx - left) / width).clamp(0.0, 1.0));
+            },
+            onLongPressEnd: (_) {
+              if (!_speedHeld) return;
+              speaker.applySpeed();
+              setState(() => _speedOpen = false);
+            },
+            child: SizedBox(
+              width: 44,
+              height: 40,
+              child: Center(child: Text('${settings.ttsSpeed}x', style: TextStyle(color: c.ink, fontSize: 13))),
+            ),
           ),
           button(Icons.close_rounded, speaker.stop, size: 21),
           ]),
