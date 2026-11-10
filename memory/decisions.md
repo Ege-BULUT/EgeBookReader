@@ -105,3 +105,10 @@ that names the old one.
 ## 2026-11-10 D11 License
 
 - GNU AGPL-3.0, chosen by the user after a comparison with GPL-3.0, MIT and Apache-2.0. It leaves room for MuPDF and DjVuLibre later. Any hosted web build must offer its source. The iOS App Store remains a risk (`research/formats.md` §1.1).
+
+## 2026-11-10 D12 First public version 0.1.0
+
+- Site at egebookreader.vercel.app, a real book: cover with looping scenes, pages that bend as they turn. Deployed at the user's request.
+- First-run setup, English and Turkish interface (`app/lib/l10n.dart`, Turkish strings are the keys).
+- Manga sample from "Give My Regards to Black Jack" (SHUHO SATO) under its free secondary-use terms: title and author must stay visible, and the rights holder asks for an email report within a month of publication. The user has to send that.
+- The public APK is still debug-signed. Move to a real key before any store; that needs one uninstall on existing phones.
