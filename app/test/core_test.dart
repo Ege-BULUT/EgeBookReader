@@ -128,12 +128,20 @@ void main() {
     expect(tinted[mid] - tinted[mid + 1], greaterThan(40));
     expect((tinted[last] - tinted[last + 1]).abs(), lessThan(8));
 
-    final red = Uint8List(4 * 16);
-    for (var i = 0; i < red.length; i += 4) {
-      red[i] = 200;
-      red[i + 3] = 255;
+    Uint8List picture(List<int> Function(int) colour) {
+      final out = Uint8List(4 * 16);
+      for (var i = 0; i < 16; i++) {
+        out.setAll(i * 4, [...colour(i), 255]);
+      }
+      return out;
     }
-    expect(prepareColorInput(red, 4, 4, 256), isNull);
+
+    // Two far-apart hues: a coloured picture, left alone.
+    expect(prepareColorInput(picture((i) => i.isEven ? [200, 40, 40] : [40, 60, 200]), 4, 4, 256), isNull);
+    // Sepia at many strengths: one hue family, so it can still be colorized.
+    expect(prepareColorInput(picture((i) => [120 + i * 8, 90 + i * 6, 50 + i * 3]), 4, 4, 256), isNotNull);
+    // Nearly grey with a few coloured specks.
+    expect(prepareColorInput(picture((i) => i == 0 ? [200, 40, 40] : [120, 120, 120]), 4, 4, 256), isNotNull);
   });
 
   testWidgets('a page is split into sentences that know where they are', (tester) async {

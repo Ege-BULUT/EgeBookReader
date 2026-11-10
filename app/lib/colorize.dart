@@ -363,6 +363,23 @@ double _linearToSrgb(double c) => c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1 
 double _f(double t) => t > 0.008856 ? pow(t, 1 / 3).toDouble() : 7.787 * t + 16 / 116;
 double _fInv(double t) => t > 0.206893 ? t * t * t : (t - 16 / 116) / 7.787;
 
+/// A picture counts as already coloured only if it has real colour and more than one hue family. Sepia, duotones and
+/// tinted scans have plenty of chroma but nearly all of it within one 60 degree slice, so they can still be colorized.
+@visibleForTesting
+bool isFullColour(Float64List hues, double tintedShare) {
+  if (tintedShare < 0.08) return false;
+  final total = hues.fold<double>(0, (a, b) => a + b);
+  var best = 0.0;
+  for (var i = 0; i < 36; i++) {
+    var slice = 0.0;
+    for (var k = 0; k < 6; k++) {
+      slice += hues[(i + k) % 36];
+    }
+    best = max(best, slice);
+  }
+  return best / total < 0.85;
+}
+
 /// Turns a model's RGB output (-1 to 1) into the a and b channels the merge takes, so the original lightness can stay.
 @visibleForTesting
 Float32List rgbToAb(Float32List rgb, int side) {
@@ -386,18 +403,25 @@ Float32List rgbToAb(Float32List rgb, int side) {
 @visibleForTesting
 Prepared? prepareColorInput(Uint8List rgba, int w, int h, int side) {
   final lightness = Float32List(w * h);
-  var chroma = 0.0;
   final toLinear = Float64List(256);
   for (var i = 0; i < 256; i++) {
     toLinear[i] = _srgbToLinear(i / 255);
   }
+  // Where the coloured pixels' hues fall, weighted by how strong the colour is.
+  final hues = Float64List(36);
+  var tinted = 0;
   for (var i = 0, n = 0; n < w * h; i += 4, n++) {
     final r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
-    chroma += max(r, max(g, b)) - min(r, min(g, b));
+    final hi = max(r, max(g, b)), lo = min(r, min(g, b)), c = hi - lo;
+    if (c > 24) {
+      tinted++;
+      final h = hi == r ? ((g - b) / c) % 6 : (hi == g ? (b - r) / c + 2 : (r - g) / c + 4);
+      hues[(h * 6).floor() % 36] += c;
+    }
     final y = 0.2126729 * toLinear[r] + 0.7151522 * toLinear[g] + 0.0721750 * toLinear[b];
     lightness[n] = 116 * _f(y) - 16;
   }
-  if (chroma / (w * h) > 14) return null;
+  if (isFullColour(hues, tinted / (w * h))) return null;
 
   final input = Float32List(3 * side * side);
   final small = Float32List(side * side);

@@ -79,6 +79,30 @@ Most readers show you a document. This one tries to give you a book.
   <sub>Turn the phone and you get two pages, with the spine in the middle.</sub>
 </p>
 
+### Colorization examples
+
+Done on the phone with the two downloadable models. Lines and lettering are untouched.
+
+<table>
+  <tr>
+    <th width="33%">Original</th>
+    <th width="33%">Model 1: DDColor</th>
+    <th width="33%">Model 2: Manga Light Colorizer</th>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/compare-manga-orig.jpg" alt="A black-and-white manga page"></td>
+    <td><img src="docs/assets/compare-manga-ddcolor.jpg" alt="The page coloured by DDColor"></td>
+    <td><img src="docs/assets/compare-manga-manga.jpg" alt="The page coloured by Manga Light Colorizer"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/compare-book-orig.jpg" alt="A black-and-white book illustration"></td>
+    <td><img src="docs/assets/compare-book-ddcolor.jpg" alt="The illustration coloured by DDColor"></td>
+    <td><img src="docs/assets/compare-book-manga.jpg" alt="The illustration coloured by Manga Light Colorizer"></td>
+  </tr>
+</table>
+
+<sub><em>Give My Regards to Black Jack</em> by SHUHO SATO. Pepper&amp;Carrot by David Revoy, CC BY 4.0, converted to grayscale.</sub>
+
 ## Features
 
 ### Turning pages
@@ -110,6 +134,7 @@ DRM-protected books are not opened; the app says so. PDFs have a reflow switch, 
 ### Pictures
 
 - **Filters** for saturation, contrast and sharpness, and a high-quality upscale. They apply to pictures only, never to text.
+- **Sepia and tinted scans count as black and white.** The app looks at how many hue families a picture has, so only pictures that really have colour are left alone.
 - **Colorize on demand** with the button on a picture. The same button then switches between colour and the original.
 - **Colorize automatically:** the first pages when a book opens, the rest one by one in the background, resting between pictures and pausing when the phone is warm or saving battery.
 - **Tap a picture** to open it over a dimmed page, zoom in and switch its colour.
@@ -182,7 +207,7 @@ memory/         requirements, research and the decisions behind the project
 
 ## Credits
 
-Sample pages from [Pepper&Carrot](https://www.peppercarrot.com) by David Revoy (CC BY 4.0) and *Give My Regards to Black Jack* by SHUHO SATO. Paper filters are inspired by [Okuma-Reader](https://github.com/DrMint/Okuma-Reader). PDF rendering by [PDFium](https://pdfium.googlesource.com/pdfium/) through [pdfrx](https://github.com/espresso3389/pdfrx), voices run on [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), CBR through [libarchive](https://github.com/libarchive/libarchive), fonts from [Fontsource](https://fontsource.org).
+Sample pages from [Pepper&Carrot](https://www.peppercarrot.com) by David Revoy (CC BY 4.0) and *Give My Regards to Black Jack* by SHUHO SATO. Paper filters are inspired by [Okuma-Reader](https://github.com/DrMint/Okuma-Reader). PDF rendering by [PDFium](https://pdfium.googlesource.com/pdfium/) through [pdfrx](https://github.com/espresso3389/pdfrx), voices run on [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), CBR through [libarchive](https://github.com/libarchive/libarchive), fonts from [Fontsource](https://fontsource.org). The logo's E is from the Ruthie typeface (OFL), and the website's silhouettes are from [game-icons.net](https://game-icons.net) (CC BY 3.0).
 
 ## License
 

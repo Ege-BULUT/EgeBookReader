@@ -406,8 +406,8 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
         final travel = easeEnter.transform(((t - 0.76) / 0.24).clamp(0.0, 1.0));
         final box = _headerLogo.currentContext?.findRenderObject() as RenderBox?;
         final header = box != null && box.hasSize ? box.localToGlobal(Offset.zero) & box.size : Offset.zero & const Size(21, 26);
-        const height = 118.0;
-        final start = Rect.fromCenter(center: screen.center(Offset.zero), width: height * 38 / 46, height: height);
+        const height = 132.0;
+        final start = Rect.fromCenter(center: screen.center(Offset.zero), width: height * 320 / 256, height: height);
         final r = Rect.lerp(start, header, travel)!;
         return Stack(children: [
           Positioned.fill(child: IgnorePointer(child: ColoredBox(color: c.paper.withValues(alpha: 1 - travel)))),
