@@ -11,11 +11,13 @@ import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html;
 import 'package:path/path.dart' as p;
 import 'package:pdfium_dart/pdfium_dart.dart' as pdfium_api;
+import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:xml/xml.dart';
 
 import 'colorize.dart';
 import 'formats.dart';
+import 'rar.dart';
 
 /// Everything that changes how a page looks; a new value means every page is rendered again.
 class PageStyle {
@@ -164,6 +166,8 @@ Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
       return EpubSource.parse(await File(path).readAsBytes(), _titleOf(path));
     case '.cbz' || '.cbt':
       return CbzSource.parse(await File(path).readAsBytes(), _titleOf(path), tar: path.toLowerCase().endsWith('.cbt'));
+    case '.cbr':
+      return ImageFolderSource.fromRar(path, _titleOf(path));
     case '.mobi' || '.azw' || '.azw3' || '.prc':
       return parseMobi(await File(path).readAsBytes(), _titleOf(path));
     case '.fb2':
@@ -188,7 +192,7 @@ Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
 }
 
 const supportedExtensions = {
-  '.pdf', '.epub', '.mobi', '.azw', '.azw3', '.prc', '.fb2', '.fbz', '.cbz', '.cbt', '.txt', '.docx', '.odt', '.html', '.htm', '.xhtml', '.md', '.markdown', '.rtf',
+  '.pdf', '.epub', '.mobi', '.azw', '.azw3', '.prc', '.fb2', '.fbz', '.cbz', '.cbt', '.cbr', '.txt', '.docx', '.odt', '.html', '.htm', '.xhtml', '.md', '.markdown', '.rtf',
 };
 
 String _titleOf(String path) => p.basenameWithoutExtension(path).replaceAll('_', ' ');
@@ -922,3 +926,63 @@ class CbzSource extends PageSource {
     return [PageImage(contentId(bytes), dst, () async => bytes)];
   }
 }
+
+/// A comic unpacked to a folder: RAR archives can only be read from start to end, so pages cannot be fetched one by one.
+class ImageFolderSource extends PageSource {
+  ImageFolderSource._(this.title, this._files);
+  @override
+  final String title;
+  final List<File> _files;
+
+  static Future<ImageFolderSource> fromRar(String path, String title) async {
+    final base = await getApplicationCacheDirectory();
+    final folder = Directory(p.join(base.path, 'comics', p.basename(path).hashCode.toRadixString(36)));
+    final done = File(p.join(folder.path, '.done'));
+    if (!done.existsSync()) {
+      if (folder.existsSync()) await folder.delete(recursive: true);
+      await folder.create(recursive: true);
+      await extractRar(path, folder.path);
+      await done.create();
+    }
+    final files = folder.listSync().whereType<File>().where((f) => _isPicture(f.path)).toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+    if (files.isEmpty) throw const FormatException('Bu dosyada görsel bulunamadı.');
+    return ImageFolderSource._(title, files);
+  }
+
+  @override
+  int get pageCount => _files.length;
+
+  @override
+  Future<void> prepare(Size page, PageStyle style, {void Function(double)? onProgress}) async {}
+
+  @override
+  Future<Uint8List?> coverBytes() => _files.first.readAsBytes();
+
+  @override
+  Future<void> paint(Canvas canvas, int index, Size page, PageStyle style) async {
+    final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
+    final codec = await ui.instantiateImageCodec(await _files[index].readAsBytes(), targetHeight: style.imageUpscale ? null : (page.height * dpr * renderScale).ceil());
+    final frame = await codec.getNextFrame();
+    codec.dispose();
+    final image = frame.image;
+    final fit = applyBoxFit(BoxFit.contain, Size(image.width.toDouble(), image.height.toDouble()), page);
+    final dst = Alignment.center.inscribe(fit.destination, Offset.zero & page);
+    await drawBookImage(canvas, image, Offset.zero & fit.source, dst, style, Paint()..filterQuality = FilterQuality.medium);
+    image.dispose();
+  }
+
+  @override
+  Future<List<PageImage>> imagesOn(int index, Size page) async {
+    final bytes = await _files[index].readAsBytes();
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    final desc = await ui.ImageDescriptor.encoded(buffer);
+    final size = Size(desc.width.toDouble(), desc.height.toDouble());
+    desc.dispose();
+    buffer.dispose();
+    final dst = Alignment.center.inscribe(applyBoxFit(BoxFit.contain, size, page).destination, Offset.zero & page);
+    return [PageImage(contentId(bytes), dst, () async => bytes)];
+  }
+}
+
+bool _isPicture(String name) => RegExp(r'\.(jpe?g|png|webp|gif|bmp)$', caseSensitive: false).hasMatch(name);
