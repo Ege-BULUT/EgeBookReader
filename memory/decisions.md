@@ -44,3 +44,14 @@ that names the old one.
   remaining formats.
 - Known limits: PDF reflow drops pictures; dark themes invert whole PDF pages, photos included; lighting in actual
   book mode is baked into the page rather than screen-space.
+
+## 2026-11-10 D6 Logo and proof of concept 2
+
+- Logo (`brand/logo.svg`): an E made of a spine and two page edges, its middle arm the bookmark ribbon. Ink `#2A2622`,
+  ribbon `#A8492F`, paper `#F7F4EE`. The ribbon is the app's signature, used for the launch motion, bookmarks and progress.
+- The user asked for a logo and more motion in the second proof of concept. Motion added: the splash hands over to the
+  ribbon sliding out and the mark travelling to the header; the cover flies from the shelf and swings open, and closes
+  back; theme changes uncover the new page with a growing circle; library cards lean under the finger; settings rise in
+  sequence; the first open lifts the page corner once as a hint; bookmarks drop as a ribbon and mark the scrubber.
+- All of it is off in E-ink and under the system's reduced-motion setting (`motionOn` in `app/lib/motion.dart`).
+- Decided by: the user.

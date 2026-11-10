@@ -7,19 +7,42 @@ import 'package:flutter/services.dart';
 
 import 'curl.dart';
 import 'main.dart';
+import 'motion.dart';
 import 'settings.dart';
 import 'sources.dart';
 
 const _volume = MethodChannel('egebookreader/volume');
 
 class ReaderScreen extends StatefulWidget {
-  const ReaderScreen({super.key, required this.book});
+  const ReaderScreen({super.key, required this.book, required this.coverRect});
   final Book book;
+
+  /// Where the book's cover is on the library screen, for the opening and closing motion.
+  final Rect? Function() coverRect;
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
 }
 
-class _ReaderScreenState extends State<ReaderScreen> {
+/// The previous look of the page, held on screen while the new one is rendered and then uncovered.
+class _Ghost {
+  _Ghost(this.pages, this.inset, this.spread, this.backdrop, this.circle, this.keep);
+  final List<ui.Image> pages;
+  final EdgeInsets inset;
+  final bool spread, circle;
+  final Color backdrop;
+  final Map<int, ui.Image> keep;
+}
+
+class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMixin {
+  late final _move = AnimationController(vsync: this, duration: const Duration(milliseconds: 440));
+  late final _swing = AnimationController(vsync: this, duration: const Duration(milliseconds: 620));
+  late final _reveal = AnimationController(vsync: this, duration: const Duration(milliseconds: 460));
+  bool _closing = false;
+  _Ghost? _ghost;
+  EdgeInsets _inset = EdgeInsets.zero;
+  Color _backdrop = Colors.transparent;
+  bool _scrubbing = false;
+
   PageSource? _source;
   ui.FragmentProgram? _program;
   ui.Image? _grain;
@@ -53,6 +76,36 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _volume.invokeMethod('setReading', true);
     _scroll.addListener(_onScroll);
     _start();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (motionOn(context, settings)) {
+        _move.forward().whenComplete(_maybeSwing);
+      } else {
+        _move.value = 1;
+        _swing.value = 1;
+      }
+    });
+  }
+
+  /// The cover swings open as soon as it has arrived and the first page is ready behind it.
+  void _maybeSwing() {
+    if (!mounted || _closing || !_ready || !_move.isCompleted || !_swing.isDismissed) return;
+    _swing.forward().whenComplete(() {
+      if (mounted && !settings.menuHintSeen) _curl.currentState?.peek();
+    });
+  }
+
+  Future<void> _close() async {
+    if (_closing) return;
+    setState(() {
+      _closing = true;
+      _menu = false;
+    });
+    if (motionOn(context, settings)) {
+      await _swing.reverse();
+      await _move.reverse();
+    }
+    if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _start() async {
@@ -73,6 +126,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _volume.invokeMethod('setEnabled', false);
     _volume.invokeMethod('setReading', false);
     _scroll.dispose();
+    _move.dispose();
+    _swing.dispose();
+    _reveal.dispose();
+    _dropGhost();
     library.save();
     _source?.dispose();
     for (final i in _images.values) {
@@ -123,6 +180,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (_pageSize == page && _style == style && _reflow == reflow) return;
     final fraction = _count > 0 ? _page / _count : (widget.book.total > 0 ? widget.book.page / widget.book.total : 0.0);
     final reopen = _source == null || _reflow != reflow;
+    final paperBefore = _style?.paper;
     _pageSize = page;
     _style = style;
     _reflow = reflow;
@@ -131,12 +189,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _images.clear();
     _rendering.clear();
     _blank = null;
+    final shown = [for (var i = _page; i < _page + _step; i++) old[i]].nonNulls.toList();
+    final previous = paperBefore;
+    if (old.isNotEmpty && shown.isNotEmpty && settings.mode != TurnMode.scroll && motionOn(context, settings)) {
+      _dropGhost();
+      _ghost = _Ghost(shown, _inset, _spreadActive, _backdrop, previous != style.paper, old);
+    } else if (old.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        for (final i in old.values) {
+          i.dispose();
+        }
+      });
+    }
     if (reopen || old.isNotEmpty) setState(() => _ready = false);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      for (final i in old.values) {
-        i.dispose();
-      }
-    });
 
     try {
       if (reopen) {
@@ -155,9 +220,26 @@ class _ReaderScreenState extends State<ReaderScreen> {
       setState(() => _ready = true);
       _remember();
       if (settings.mode == TurnMode.scroll) _jumpScroll();
+      _maybeSwing();
+      if (_ghost != null) {
+        _reveal.forward(from: 0).whenComplete(() {
+          if (mounted) setState(_dropGhost);
+        });
+      }
     } catch (e) {
       _fail(e);
     }
+  }
+
+  void _dropGhost() {
+    final g = _ghost;
+    _ghost = null;
+    if (g == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final i in g.keep.values) {
+        i.dispose();
+      }
+    });
   }
 
   int _align(int page) => _spreadActive ? page - page % 2 : page;
@@ -317,8 +399,24 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _toggleMenu() {
+    if (!settings.menuHintSeen) settings.update((x) => x.menuHintSeen = true);
     setState(() => _menu = !_menu);
     _syncVolume();
+  }
+
+  double get _fraction => _count == 0 ? 0 : _page / _count;
+  bool get _bookmarked => widget.book.bookmarks.any((b) => (b - _fraction).abs() < 0.5 / max(_count, 1));
+
+  void _toggleBookmark() {
+    HapticFeedback.lightImpact();
+    setState(() {
+      if (_bookmarked) {
+        widget.book.bookmarks.removeWhere((b) => (b - _fraction).abs() < 0.5 / max(_count, 1));
+      } else {
+        widget.book.bookmarks.add(_fraction);
+      }
+    });
+    library.save();
   }
 
   void _seek(int page) {
@@ -355,49 +453,166 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Widget build(BuildContext context) {
     final c = settings.palette;
     final filters = settings.bookFilters;
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: c.isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
-      child: Scaffold(
-        backgroundColor: filters ? _tableColor(c) : c.paper,
-        body: LayoutBuilder(builder: (context, box) {
-          final screen = box.biggest;
-          _spread = screen.width > screen.height && screen.width >= 600;
-          final inset = filters ? _bookInset(screen) : EdgeInsets.zero;
-          final book = inset.deflateSize(screen);
-          final scrolling = settings.mode == TurnMode.scroll;
-          final page = scrolling
-              ? Size(book.width, _scrollPageHeight(book))
-              : (_spreadActive ? Size(book.width / 2, book.height) : book);
-          if (_program != null && (_grain != null) && _error == null) {
-            scheduleMicrotask(() {
-              if (mounted) _ensureLayout(page, settings.pageStyle);
-            });
-          }
-          return Stack(fit: StackFit.expand, children: [
-            if (filters && !scrolling)
-              CustomPaint(
-                painter: _BookBedPainter(
-                  book: inset.topLeft & book,
-                  spread: _spreadActive,
-                  read: _count == 0 ? 0 : _page / _count,
-                  edge: Color.lerp(c.paper, Colors.black, c.isDark ? 0.0 : 0.16)!,
-                  line: c.isDark ? Colors.white12 : Colors.black26,
-                ),
+    final base = filters ? _tableColor(c) : c.paper;
+    _backdrop = base;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _close();
+      },
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: c.isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        child: Material(
+          type: MaterialType.transparency,
+          child: LayoutBuilder(builder: (context, box) {
+            final screen = box.biggest;
+            _spread = screen.width > screen.height && screen.width >= 600;
+            final inset = filters ? _bookInset(screen) : EdgeInsets.zero;
+            _inset = inset;
+            final book = inset.deflateSize(screen);
+            final scrolling = settings.mode == TurnMode.scroll;
+            final page = scrolling
+                ? Size(book.width, _scrollPageHeight(book))
+                : (_spreadActive ? Size(book.width / 2, book.height) : book);
+            if (_program != null && (_grain != null) && _error == null) {
+              scheduleMicrotask(() {
+                if (mounted) _ensureLayout(page, settings.pageStyle);
+              });
+            }
+            return Stack(fit: StackFit.expand, children: [
+              AnimatedBuilder(
+                animation: _move,
+                builder: (_, child) => Opacity(opacity: easeEnter.transform(_move.value), child: child),
+                child: Stack(fit: StackFit.expand, children: [
+                  ColoredBox(color: base),
+                  if (filters && !scrolling)
+                    CustomPaint(
+                      painter: _BookBedPainter(
+                        book: inset.topLeft & book,
+                        spread: _spreadActive,
+                        read: _count == 0 ? 0 : _page / _count,
+                        edge: Color.lerp(c.paper, Colors.black, c.isDark ? 0.0 : 0.16)!,
+                        line: c.isDark ? Colors.white12 : Colors.black26,
+                      ),
+                    ),
+                  Padding(
+                    padding: inset,
+                    child: AnimatedOpacity(
+                      opacity: _ready ? 1 : 0,
+                      duration: Duration(milliseconds: _ghost != null || settings.isEink ? 1 : 200),
+                      child: _error != null || !_ready || _program == null
+                          ? const SizedBox.shrink()
+                          : (scrolling ? _scrollView(page) : _flipView()),
+                    ),
+                  ),
+                  if (_ghost != null) _ghostLayer(screen),
+                  _menuHint(c),
+                  if (_error != null) _errorView(c),
+                  _chrome(c),
+                  _ribbon(c, inset),
+                ]),
               ),
-            Padding(
-              padding: inset,
-              child: AnimatedOpacity(
-                opacity: _ready ? 1 : 0,
-                duration: Duration(milliseconds: settings.isEink ? 1 : 260),
-                child: _error != null || !_ready || _program == null
-                    ? const SizedBox.shrink()
-                    : (scrolling ? _scrollView(page) : _flipView()),
+              _coverLayer(c, screen),
+            ]);
+          }),
+        ),
+      ),
+    );
+  }
+
+  Widget _ghostLayer(Size screen) {
+    final g = _ghost!;
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _reveal,
+        builder: (_, _) {
+          final v = easeEnter.transform(_reveal.value);
+          Widget layer = ColoredBox(
+            color: g.backdrop,
+            child: Padding(
+              padding: g.inset,
+              child: g.spread && g.pages.length == 2
+                  ? Row(children: [
+                      Expanded(child: RawImage(image: g.pages[0], fit: BoxFit.fill)),
+                      Expanded(child: RawImage(image: g.pages[1], fit: BoxFit.fill)),
+                    ])
+                  : RawImage(image: g.pages[0], fit: BoxFit.fill, width: double.infinity, height: double.infinity),
+            ),
+          );
+          return g.circle ? ClipPath(clipper: _HoleClipper(v), child: layer) : Opacity(opacity: 1 - v, child: layer);
+        },
+      ),
+    );
+  }
+
+  /// The cover travels from its place on the shelf to fill the screen, then swings open on its left edge.
+  Widget _coverLayer(Palette c, Size screen) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_move, _swing]),
+      builder: (_, _) {
+        if (_swing.isCompleted) return const SizedBox.shrink();
+        final m = easeEnter.transform(_move.value);
+        final s = Curves.easeInOutCubic.transform(_swing.value);
+        final from = widget.coverRect() ?? Rect.fromCenter(center: screen.center(Offset.zero), width: 120, height: 180);
+        final to = _spread ? Rect.fromLTWH(screen.width / 2, 0, screen.width / 2, screen.height) : Offset.zero & screen;
+        final fade = ((1 - s) / 0.25).clamp(0.0, 1.0);
+        final waiting = !_ready && _move.isCompleted && _swing.isDismissed;
+        return Positioned.fromRect(
+          rect: Rect.lerp(from, to, m)!,
+          child: IgnorePointer(
+            child: Opacity(
+              opacity: fade,
+              child: Transform(
+                alignment: Alignment.centerLeft,
+                transform: Matrix4.identity()
+                  ..setEntry(3, 2, 0.0011)
+                  ..rotateY(s * 1.8),
+                child: Stack(fit: StackFit.expand, children: [
+                  BookCover(book: widget.book, ribbon: false),
+                  ColoredBox(color: Colors.black.withValues(alpha: 0.28 * s)),
+                  if (waiting)
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: LinearProgressIndicator(
+                        value: _layoutProgress > 0 ? _layoutProgress : null,
+                        minHeight: 2,
+                        color: c.accent,
+                        backgroundColor: Colors.transparent,
+                      ),
+                    ),
+                ]),
               ),
             ),
-            if (!_ready) _loading(c),
-            _chrome(c),
-          ]);
-        }),
+          ),
+        );
+      },
+    );
+  }
+
+  /// The bookmark: hangs from the top edge, falls with a small bounce when set.
+  Widget _ribbon(Palette c, EdgeInsets inset) {
+    final set = _bookmarked;
+    final length = set ? 62.0 : (_menu ? 30.0 : 0.0);
+    return Positioned(
+      top: 0,
+      right: inset.right + 18,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: _menu || set ? _toggleBookmark : null,
+        child: SizedBox(
+          width: 44,
+          height: length + 16,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: AnimatedContainer(
+              duration: Duration(milliseconds: settings.isEink ? 1 : 340),
+              curve: easeSettle,
+              width: 14,
+              height: length,
+              child: CustomPaint(painter: _RibbonPainter(set ? c.accent : c.accent.withValues(alpha: 0.5))),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -417,33 +632,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   Color _tableColor(Palette c) => Color.lerp(c.paper, const Color(0xFF2B211A), c.isDark ? 0.5 : 0.78)!;
 
-  Widget _loading(Palette c) {
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: c.ink, fontSize: 15, height: 1.4)),
-            const SizedBox(height: 14),
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Kitaplığa dön')),
-          ]),
-        ),
-      );
-    }
+  Widget _errorView(Palette c) {
     return Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        SizedBox(width: 150, height: 216, child: Hero(tag: widget.book.path, child: BookCover(book: widget.book))),
-        const SizedBox(height: 22),
-        SizedBox(
-          width: 150,
-          child: LinearProgressIndicator(
-            value: _layoutProgress > 0 ? _layoutProgress : null,
-            minHeight: 2,
-            color: c.accent,
-            backgroundColor: c.line,
-          ),
-        ),
-      ]),
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: c.ink, fontSize: 15, height: 1.4)),
+          const SizedBox(height: 14),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Kitaplığa dön')),
+        ]),
+      ),
     );
   }
 
@@ -497,6 +695,75 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
+  Widget _scrubber(Palette c, int total) {
+    final value = _page.clamp(0, total - 1).toDouble();
+    return LayoutBuilder(builder: (context, box) {
+      const thumb = 7.0;
+      final x = thumb + (box.maxWidth - thumb * 2) * value / max(total - 1, 1);
+      return Stack(clipBehavior: Clip.none, alignment: Alignment.centerLeft, children: [
+        Positioned.fill(
+          child: IgnorePointer(child: CustomPaint(painter: _TickPainter(widget.book.bookmarks, c.accent, thumb))),
+        ),
+        Slider(
+          value: value,
+          max: (total - 1).toDouble(),
+          onChangeStart: (_) => setState(() => _scrubbing = true),
+          onChanged: (v) {
+            final next = _align(v.round());
+            if (next != _page) HapticFeedback.selectionClick();
+            setState(() => _page = next);
+          },
+          onChangeEnd: (v) {
+            setState(() => _scrubbing = false);
+            _seek(v.round());
+          },
+        ),
+        Positioned(
+          left: x - 34,
+          bottom: 26,
+          child: IgnorePointer(
+            child: AnimatedScale(
+              scale: _scrubbing ? 1 : 0.7,
+              duration: const Duration(milliseconds: 180),
+              curve: easeSettle,
+              alignment: Alignment.bottomCenter,
+              child: AnimatedOpacity(
+                opacity: _scrubbing ? 1 : 0,
+                duration: const Duration(milliseconds: 120),
+                child: Container(
+                  width: 68,
+                  padding: const EdgeInsets.symmetric(vertical: 7),
+                  decoration: BoxDecoration(color: c.ink, borderRadius: BorderRadius.circular(6)),
+                  child: Text('${_page + 1}',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: c.paper, fontSize: 16, fontWeight: FontWeight.w500)),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ]);
+    });
+  }
+
+  /// Shown until the menu has been opened once, because nothing on a page says it exists.
+  Widget _menuHint(Palette c) {
+    final show = _ready && !settings.menuHintSeen;
+    return IgnorePointer(
+      child: Center(
+        child: AnimatedOpacity(
+          opacity: show ? 1 : 0,
+          duration: Duration(milliseconds: settings.isEink ? 1 : 300),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            decoration: BoxDecoration(color: c.ink, borderRadius: BorderRadius.circular(6)),
+            child: Text('Ayarlar için sayfanın ortasına dokun', style: TextStyle(color: c.paper, fontSize: 14)),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _chrome(Palette c) {
     final eink = settings.isEink;
     final d = Duration(milliseconds: eink ? 1 : (_menu ? 220 : 140));
@@ -521,7 +788,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
               child: Row(children: [
                 IconButton(
                   icon: Icon(Icons.arrow_back, color: c.ink, size: 22),
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: _close,
                 ),
                 Expanded(
                   child: Text(widget.book.title,
@@ -550,21 +817,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
               padding: EdgeInsets.fromLTRB(20, 10, 8, max(pad.bottom, 10)),
               child: Row(children: [
                 Expanded(
-                  child: total > 1
-                      ? Slider(
-                          value: _page.clamp(0, total - 1).toDouble(),
-                          max: (total - 1).toDouble(),
-                          onChanged: (v) => setState(() => _page = _align(v.round())),
-                          onChangeEnd: (v) => _seek(v.round()),
-                        )
-                      : const SizedBox.shrink(),
+                  child: total > 1 ? _scrubber(c, total) : const SizedBox.shrink(),
                 ),
                 const SizedBox(width: 12),
                 Text('${min(_page + 1, max(total, 1))} / $total',
                     style: TextStyle(color: c.muted, fontSize: 12, fontFeatures: const [ui.FontFeature.tabularFigures()])),
-                IconButton(
-                  icon: Icon(Icons.tune, color: c.ink, size: 22),
+                const SizedBox(width: 4),
+                TextButton.icon(
                   onPressed: _openSettings,
+                  style: TextButton.styleFrom(foregroundColor: c.ink),
+                  icon: const Icon(Icons.tune, size: 20),
+                  label: const Text('Ayarlar'),
                 ),
               ]),
             ),
@@ -583,6 +846,66 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   bool get _isPdf => widget.book.path.toLowerCase().endsWith('.pdf');
+}
+
+/// Clips away a growing circle from the bottom of the screen, where the theme was just chosen.
+class _HoleClipper extends CustomClipper<Path> {
+  _HoleClipper(this.t);
+  final double t;
+
+  @override
+  Path getClip(Size size) {
+    final center = Offset(size.width / 2, size.height * 0.8);
+    final radius = Offset(size.width, size.height).distance * t;
+    return Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(Offset.zero & size)
+      ..addOval(Rect.fromCircle(center: center, radius: radius));
+  }
+
+  @override
+  bool shouldReclip(_HoleClipper old) => old.t != t;
+}
+
+class _RibbonPainter extends CustomPainter {
+  _RibbonPainter(this.color);
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final notch = min(size.height, 7.0);
+    canvas.drawPath(
+      Path()
+        ..lineTo(size.width, 0)
+        ..lineTo(size.width, size.height)
+        ..lineTo(size.width / 2, size.height - notch)
+        ..lineTo(0, size.height)
+        ..close(),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RibbonPainter o) => o.color != color;
+}
+
+class _TickPainter extends CustomPainter {
+  _TickPainter(this.marks, this.color, this.inset);
+  final List<double> marks;
+  final Color color;
+  final double inset;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()..color = color;
+    for (final m in marks) {
+      final x = inset + (size.width - inset * 2) * m;
+      canvas.drawRect(Rect.fromCenter(center: Offset(x, size.height / 2), width: 2, height: 10), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_TickPainter o) => true;
 }
 
 /// In actual book mode: the stacked page edges at the book's sides and its shadow on the table.
@@ -641,7 +964,7 @@ class _SettingsSheet extends StatelessWidget {
             color: c.paper,
             child: ListView(
               padding: const EdgeInsets.fromLTRB(22, 22, 22, 30),
-              children: [
+              children: _risen(context, [
                 _Heading('Tema'),
                 Row(children: [
                   for (final t in PaperTheme.values) ...[
@@ -693,13 +1016,18 @@ class _SettingsSheet extends StatelessWidget {
                   s.actualBook,
                   (v) => s.update((x) => x.actualBook = v),
                 ),
-              ],
+              ]),
             ),
           ),
         );
       },
     );
   }
+
+  List<Widget> _risen(BuildContext context, List<Widget> items) => [
+        for (final (i, item) in items.indexed)
+          Rise(index: i, enabled: motionOn(context, settings), child: item),
+      ];
 }
 
 class _Heading extends StatelessWidget {

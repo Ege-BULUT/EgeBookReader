@@ -46,6 +46,7 @@ class Settings extends ChangeNotifier {
   bool volumeKeys = true, invertVolume = false;
   bool reflow = false;
   bool actualBook = false;
+  bool menuHintSeen = false;
 
   Palette get palette => palettes[(theme, dark)]!;
   bool get isEink => theme == PaperTheme.eink;
@@ -86,6 +87,7 @@ class Settings extends ChangeNotifier {
       invertVolume = j['invertVolume'] as bool;
       reflow = j['reflow'] as bool;
       actualBook = j['actualBook'] as bool;
+      menuHintSeen = j['menuHintSeen'] as bool? ?? false;
     } catch (_) {
       // A settings file from another version is not worth stopping the app for.
     }
@@ -108,6 +110,7 @@ class Settings extends ChangeNotifier {
       'invertVolume': invertVolume,
       'reflow': reflow,
       'actualBook': actualBook,
+      'menuHintSeen': menuHintSeen,
     }));
   }
 }

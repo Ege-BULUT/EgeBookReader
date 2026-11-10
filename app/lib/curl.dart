@@ -231,6 +231,19 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
     });
   }
 
+  /// Lifts the corner a little and lets it fall back, to show that the page can be taken by hand.
+  void peek() {
+    if (_dir != 0 || !widget.animate || !widget.canGo(1)) return;
+    if (!_begin(1, Offset(0, _size.height * 0.95))) return;
+    _from = _finger = _flat;
+    _to = _flat - Offset(_pageW * 0.26, _size.height * 0.05);
+    _landing = true;
+    _anim.value = 0;
+    _anim.animateTo(1, duration: const Duration(milliseconds: 480), curve: Curves.easeOut).whenComplete(() {
+      if (mounted && _dir != 0) _land(completeTurn: false);
+    });
+  }
+
   /// Turns one page without a finger: tap zones and volume keys.
   void turn(int dir) {
     if (_dir != 0) return;
