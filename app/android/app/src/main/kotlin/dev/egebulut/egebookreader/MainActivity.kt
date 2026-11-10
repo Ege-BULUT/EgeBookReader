@@ -26,6 +26,9 @@ class MainActivity : FlutterActivity() {
                     "setReading" -> {
                         reading = call.arguments as Boolean
                         applyGestureExclusion()
+                        // A page being read should not go dark in the middle of a paragraph.
+                        if (reading) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         result.success(null)
                     }
                     "shouldRest" -> result.success(shouldRest())

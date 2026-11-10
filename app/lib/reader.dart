@@ -14,6 +14,7 @@ import 'settings.dart';
 import 'settings_sheet.dart';
 import 'sources.dart';
 import 'tts.dart';
+import 'viewer.dart';
 
 const _volume = MethodChannel('egebookreader/volume');
 
@@ -70,6 +71,10 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   final _images = <int, ui.Image>{};
   final _pageImages = <int, List<PageImage>>{};
+
+  /// Finer copies of the pages on screen, drawn while zoomed in.
+  final _sharp = <int, ui.Image>{};
+  int _sharpRun = 0;
   final _rendering = <int>{};
   ui.Image? _blank;
   ui.Image? _customBackground;
@@ -163,7 +168,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   /// A picture finished colouring: redraw the page it is on, which only ever changes that picture.
   Future<void> _colorizedOne(String id) async {
-    if (!mounted || !colorizer.hasResult(id)) return;
+    if (!mounted) return;
     final generation = _generation;
     for (final entry in _pageImages.entries.toList()) {
       if (!entry.value.any((i) => i.id == id) || !_images.containsKey(entry.key)) continue;
@@ -193,9 +198,12 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       if (images.isEmpty) continue;
       pagesWithImages++;
       first.addAll(images);
+      for (final image in images) {
+        _firstPageOf[image.id] = next + 1;
+      }
     }
     for (final image in first) {
-      colorizer.enqueue(image, rest: false);
+      colorizer.enqueue(image, rest: false, title: widget.book.title, pageNumber: _pageOfImage(image));
     }
     if (firstVisit) await colorizer.whenIdle(first.map((i) => i.id));
     widget.book.colorizeStarted = true;
@@ -203,11 +211,14 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     unawaited(() async {
       for (var i = next; i < _count && mounted; i++) {
         for (final image in await source.imagesOn(i, page)) {
-          colorizer.enqueue(image);
+          colorizer.enqueue(image, title: widget.book.title, pageNumber: i + 1);
         }
       }
     }());
   }
+
+  final _firstPageOf = <String, int>{};
+  int? _pageOfImage(PageImage image) => _firstPageOf[image.id];
 
   Future<void> _start() async {
     try {
@@ -406,8 +417,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     });
   }
 
-  Future<ui.Image> _renderOne(int index, Size page, PageStyle s) async {
-    final dpr = MediaQuery.devicePixelRatioOf(context);
+  Future<ui.Image> _renderOne(int index, Size page, PageStyle s, {double sharper = 1}) async {
+    _source?.renderScale = sharper;
+    final dpr = MediaQuery.devicePixelRatioOf(context) * sharper;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder)..scale(dpr);
     final background = _customBackground;
@@ -427,7 +439,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       _pageImages[index] = images;
       for (final image in images) {
         final file = colorizer.fileFor(image.id);
-        if (!file.existsSync()) continue;
+        if (!file.existsSync() || !colorizer.showsColor(image.id)) continue;
         // Same rectangle as the original, so colouring a picture can never move anything on the page.
         final codec = await ui.instantiateImageCodec(await file.readAsBytes(), targetWidth: (image.rect.width * dpr).ceil());
         final frame = await codec.getNextFrame();
@@ -544,6 +556,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   void _onTurned(int dir) {
+    _dropSharp();
     setState(() => _page = (_page + dir * _step).clamp(0, max(0, _count - 1)));
     _remember();
     _renderWindow(_generation);
@@ -553,8 +566,66 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     }
   }
 
+  Future<void> _zoomSettled(double scale) async {
+    final run = ++_sharpRun;
+    if (scale <= 1.3) return _dropSharp();
+    final factor = min(scale, 3.0);
+    for (var i = _page; i < _page + _step && i < _count; i++) {
+      final img = await _renderOne(i, _pageSize!, _style!, sharper: factor);
+      _source?.renderScale = 1;
+      if (!mounted || run != _sharpRun) return img.dispose();
+      final old = _sharp[i];
+      setState(() => _sharp[i] = img);
+      WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+    }
+  }
+
+  void _dropSharp() {
+    final old = _sharp.values.toList();
+    _sharp.clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final i in old) {
+        i.dispose();
+      }
+    });
+    if (mounted) setState(() {});
+  }
+
+  /// A tap on a picture opens it, unless the picture is the whole page: a comic page must keep its tap zones.
+  bool _openPictureAt(Offset at, Size size) {
+    final right = _spreadActive && at.dx >= size.width / 2;
+    return _openPicture(right ? _page + 1 : _page, Offset(right ? at.dx - size.width / 2 : at.dx, at.dy), right ? Offset(_pageSize!.width, 0) : Offset.zero);
+  }
+
+  bool _openPicture(int index, Offset inPage, Offset pageOrigin) {
+    final images = _pageImages[index] ?? const <PageImage>[];
+    final page = _pageSize!;
+    for (final (i, image) in images.indexed) {
+      if (!image.rect.contains(inPage)) continue;
+      if (image.rect.width * image.rect.height > page.width * page.height * 0.7) return false;
+      final shift = _inset.topLeft + pageOrigin;
+      Navigator.of(context).push(PageRouteBuilder<void>(
+        opaque: false,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+        pageBuilder: (_, _, _) => PhotoViewer(
+          closeOnBackdrop: true,
+          initial: i,
+          origin: () => image.rect.shift(shift),
+          items: [
+            for (final img in images)
+              ViewerItem(id: img.id, caption: '${widget.book.title} · Sayfa ${index + 1}', page: img, original: img.bytes),
+          ],
+        ),
+      ));
+      return true;
+    }
+    return false;
+  }
+
   void _onTap(Offset at, Size size) {
     if (_menu) return _toggleMenu();
+    if (_openPictureAt(at, size)) return;
     switch (settings.zones.actionAt(at, size)) {
       case ZoneAction.prev:
         _curl.currentState?.turn(-1);
@@ -830,12 +901,13 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       still: _still(),
       onTurned: _onTurned,
       onTap: _onTap,
+      onZoomChanged: _zoomSettled,
     );
   }
 
   Widget _still() {
     Widget one(int i) {
-      final img = _img(i);
+      final img = _sharp[i] ?? _img(i);
       return img == null ? const SizedBox.expand() : RawImage(image: img, fit: BoxFit.fill);
     }
 
@@ -862,14 +934,18 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     final c = settings.palette;
     return [
       for (final image in _pageImages[index] ?? const <PageImage>[])
-        if (colorizer.stateOf(image.id) case final state when state != JobState.done && state != JobState.skipped)
+        if (colorizer.stateOf(image.id) case final state when state != JobState.skipped)
           Positioned(
             top: image.rect.top + 6,
             left: image.rect.right - 40,
             child: GestureDetector(
               onTap: () {
                 HapticFeedback.selectionClick();
-                colorizer.enqueue(image, front: true, rest: false);
+                if (state == JobState.done) {
+                  colorizer.setShowsColor(image.id, !colorizer.showsColor(image.id));
+                } else {
+                  colorizer.enqueue(image, front: true, rest: false, title: widget.book.title, pageNumber: index + 1);
+                }
               },
               child: Container(
                 width: 34,
@@ -878,7 +954,13 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                 alignment: Alignment.center,
                 child: state == JobState.running || state == JobState.waiting
                     ? SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2, color: c.paper))
-                    : Icon(state == JobState.failed ? Icons.refresh : Icons.palette_outlined, color: c.paper, size: 18),
+                    : Icon(
+                        state == JobState.failed
+                            ? Icons.refresh
+                            : (state == JobState.done && colorizer.showsColor(image.id) ? Icons.palette : Icons.palette_outlined),
+                        color: c.paper,
+                        size: 18,
+                      ),
               ),
             ),
           ),
@@ -887,7 +969,12 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   Widget _scrollView(Size page) {
     return GestureDetector(
-      onTap: _toggleMenu,
+      onTapUp: (d) {
+        final at = d.localPosition.dy + _scroll.offset;
+        final index = (at / _itemExtent).floor();
+        if (index >= 0 && index < _count && _openPicture(index, Offset(d.localPosition.dx, at - index * _itemExtent), Offset(0, index * _itemExtent - _scroll.offset))) return;
+        _toggleMenu();
+      },
       child: ListView.builder(
         controller: _scroll,
         itemExtent: _itemExtent,
@@ -1049,6 +1136,12 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: c.ink, fontSize: 15, fontWeight: FontWeight.w500)),
                 ),
+                IconButton(
+                  tooltip: 'İçindekiler',
+                  icon: Icon(Icons.format_list_bulleted_rounded, color: c.ink, size: 22),
+                  onPressed: _openContents,
+                ),
+                const SizedBox(width: 48), // room for the ribbon
               ]),
             ),
           ),
@@ -1093,6 +1186,51 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
         ),
       ),
     ]);
+  }
+
+  Future<void> _openContents() async {
+    final toc = await _source!.tableOfContents();
+    if (!mounted) return;
+    final c = settings.palette;
+    final marks = [...widget.book.bookmarks]..sort();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: 0.72,
+        child: ListView(padding: const EdgeInsets.fromLTRB(8, 18, 8, 24), children: [
+          if (marks.isNotEmpty) ...[
+            const Padding(padding: EdgeInsets.fromLTRB(14, 0, 14, 8), child: Heading('Yer imleri')),
+            for (final m in marks)
+              _contentRow(context, 'Sayfa ${(m * _count).round() + 1}', (m * _count).round(), 0, leading: Icon(Icons.bookmark, color: c.accent, size: 18)),
+          ],
+          const Padding(padding: EdgeInsets.fromLTRB(14, 0, 14, 8), child: Heading('İçindekiler')),
+          if (toc.isEmpty)
+            Padding(padding: const EdgeInsets.all(14), child: Text('Bu kitapta içindekiler bilgisi yok.', style: TextStyle(color: c.muted, fontSize: 14))),
+          for (final e in toc) _contentRow(context, e.title, e.page, e.depth),
+        ]),
+      ),
+    );
+  }
+
+  Widget _contentRow(BuildContext sheet, String title, int page, int depth, {Widget? leading}) {
+    final c = settings.palette;
+    final here = page >= _page && page < _page + _step;
+    return InkWell(
+      onTap: () {
+        Navigator.pop(sheet);
+        _toggleMenu();
+        _seek(page);
+      },
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(14 + depth * 16.0, 11, 14, 11),
+        child: Row(children: [
+          if (leading != null) ...[leading, const SizedBox(width: 10)],
+          Expanded(child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: here ? c.accent : c.ink, fontSize: 15))),
+          Text('${page + 1}', style: TextStyle(color: c.muted, fontSize: 13)),
+        ]),
+      ),
+    );
   }
 
   void _openSettings() {

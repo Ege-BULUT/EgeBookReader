@@ -81,3 +81,14 @@ that names the old one.
 - The release build needs a keep rule for `ai.onnxruntime.**` (R8 renaming crashes JNI). Compressed native libraries keep the APK at 23 MB, under
   OpenCommunicate's 50 MB limit.
 - The sample book `assets/samples/colorize.epub` uses a Pepper&Carrot page (David Revoy, CC BY 4.0), turned grayscale, credited in the book.
+
+## 2026-11-10 D9 Proof of concept 5: read aloud, zoom, picture viewer, new logo motion
+
+- Read aloud (R8): system voice by default, downloadable Supertonic 3 (31 languages including Turkish) and Kokoro 1.1 (English, Chinese) through sherpa-onnx, and any
+  OpenAI-style `/audio/speech` service with the user's key. Kitten is left out: under sherpa-onnx 2.x it needs the GPL phonemizer. The API key stays in app-private storage and backups are off.
+- sherpa-onnx and the `flutter_onnxruntime` plugin each ship a `libonnxruntime.so` with different symbol versions, so they cannot load together. The plugin is gone; `app/lib/onnx.dart` calls sherpa's copy through the C API.
+- Page gestures: one finger turns (or pans when zoomed), two fingers always zoom, decided the moment the second finger lands; after a pinch no turn until all fingers lift. Covered by widget tests, because the emulator cannot do multi-touch through adb.
+- A tap on a picture opens the dimmed viewer unless the picture fills over 70% of the page, so comic pages keep their tap zones.
+- The system splash is now empty paper; the logo builds itself in Flutter (`_LogoPainter`).
+- Added unasked: contents and bookmarks sheet, screen stays on while reading.
+- Known limits: speech stops if Android kills the app in the background (no foreground service yet); a sentence crossing two pages is read as two.

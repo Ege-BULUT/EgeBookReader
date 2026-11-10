@@ -194,7 +194,7 @@ class LibraryScreen extends StatefulWidget {
 
 class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMixin {
   late final _enter = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
-  late final _intro = AnimationController(vsync: this, duration: const Duration(milliseconds: 1250));
+  late final _intro = AnimationController(vsync: this, duration: const Duration(milliseconds: 2150));
   final _headerLogo = GlobalKey();
   bool _importing = false;
   bool _introDone = false;
@@ -212,7 +212,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
       _intro.forward().whenComplete(() {
         if (mounted) setState(() => _introDone = true);
       });
-      Future<void>.delayed(const Duration(milliseconds: 700), () {
+      Future<void>.delayed(const Duration(milliseconds: 1620), () {
         if (mounted) _enter.forward();
       });
     });
@@ -393,20 +393,18 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
     );
   }
 
-  /// Takes over from the system splash, which shows the same mark without its ribbon at the same place:
-  /// the ribbon slides out, then the mark travels to its place in the header.
+  /// The mark builds itself on empty paper, then travels to its place in the header.
   Widget _introOverlay(Palette c) {
     return AnimatedBuilder(
       animation: _intro,
       builder: (context, _) {
         final screen = MediaQuery.sizeOf(context);
         final t = _intro.value;
-        final draw = 0.5 + 0.5 * (t / 0.55).clamp(0.0, 1.0);
-        final travel = easeEnter.transform(((t - 0.6) / 0.4).clamp(0.0, 1.0));
+        final draw = (t / 0.74).clamp(0.0, 1.0);
+        final travel = easeEnter.transform(((t - 0.76) / 0.24).clamp(0.0, 1.0));
         final box = _headerLogo.currentContext?.findRenderObject() as RenderBox?;
         final header = box != null && box.hasSize ? box.localToGlobal(Offset.zero) & box.size : Offset.zero & const Size(21, 26);
-        // 46/108 of the 288dp box Android 12+ draws its splash icon in.
-        const height = 288 * 46 / 108;
+        const height = 118.0;
         final start = Rect.fromCenter(center: screen.center(Offset.zero), width: height * 38 / 46, height: height);
         final r = Rect.lerp(start, header, travel)!;
         return Stack(children: [

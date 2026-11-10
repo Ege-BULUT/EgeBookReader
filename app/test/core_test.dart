@@ -151,4 +151,96 @@ void main() {
       expect(sentences.first.boxes.first.top, greaterThanOrEqualTo(26));
     });
   });
+
+  group('page gestures', () {
+    late ui.FragmentProgram program;
+    var turned = <int>[];
+
+    Future<void> pump(WidgetTester tester) async {
+      await tester.runAsync(() async => program = await ui.FragmentProgram.fromAsset('shaders/page_curl.frag'));
+      turned = [];
+      await tester.pumpWidget(MaterialApp(
+        home: PageCurlView(
+          program: program,
+          spread: false,
+          paper: Colors.white,
+          animate: false,
+          canGo: (_) => true,
+          pagesFor: (_) => null,
+          still: const SizedBox.expand(),
+          onTurned: turned.add,
+          onTap: (_, _) {},
+        ),
+      ));
+    }
+
+    testWidgets('one finger across the page turns it once', (tester) async {
+      await pump(tester);
+      await tester.dragFrom(const Offset(600, 300), const Offset(-300, 0));
+      await tester.pump();
+      expect(turned, [1]);
+      expect(find.textContaining('Sığdır'), findsNothing);
+    });
+
+    testWidgets('one finger straight up and down does not turn', (tester) async {
+      await pump(tester);
+      await tester.dragFrom(const Offset(400, 100), const Offset(0, 300));
+      await tester.pump();
+      expect(turned, isEmpty);
+    });
+
+    Future<void> pinch(WidgetTester tester) async {
+      final a = await tester.startGesture(const Offset(350, 300));
+      final b = await tester.startGesture(const Offset(450, 300));
+      await tester.pump();
+      for (var i = 1; i <= 6; i++) {
+        await a.moveBy(const Offset(-25, 0));
+        await b.moveBy(const Offset(25, 0));
+        await tester.pump();
+      }
+      await a.up();
+      await b.up();
+      await tester.pump();
+    }
+
+    testWidgets('two fingers zoom and never turn', (tester) async {
+      await pump(tester);
+      await pinch(tester);
+      expect(turned, isEmpty);
+      expect(find.textContaining('Sığdır'), findsOneWidget);
+    });
+
+    testWidgets('while zoomed, one finger moves the page instead of turning it', (tester) async {
+      await pump(tester);
+      await pinch(tester);
+      await tester.dragFrom(const Offset(600, 300), const Offset(-300, 0));
+      await tester.pump();
+      expect(turned, isEmpty);
+      await tester.tap(find.textContaining('Sığdır'));
+      await tester.pump();
+      expect(find.textContaining('Sığdır'), findsNothing);
+      await tester.dragFrom(const Offset(600, 300), const Offset(-300, 0));
+      await tester.pump();
+      expect(turned, [1]);
+    });
+
+    testWidgets('lifting one finger of a pinch does not turn the page', (tester) async {
+      await pump(tester);
+      final a = await tester.startGesture(const Offset(350, 300));
+      final b = await tester.startGesture(const Offset(450, 300));
+      await tester.pump();
+      await a.moveBy(const Offset(-2, 0));
+      await b.moveBy(const Offset(2, 0));
+      await tester.pump();
+      await b.up();
+      await tester.pump();
+      for (var i = 0; i < 6; i++) {
+        await a.moveBy(const Offset(-40, 0));
+        await tester.pump();
+      }
+      await a.up();
+      await tester.pump();
+      expect(turned, isEmpty);
+    });
+  });
 }

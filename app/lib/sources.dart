@@ -94,8 +94,17 @@ class SpokenSentence {
 // A full stop counts as an end only before a space or the end of the text, so "4.0" stays in one piece.
 final _sentence = RegExp(r'(?:[.!?…](?=[^\s"”’)».!?…])|[^.!?…。！？؟।])+[.!?…。！？؟।]*["”’)»]*\s*|[.!?…。！？؟।]+\s*');
 
+class TocEntry {
+  TocEntry(this.title, this.page, this.depth);
+  final String title;
+  final int page, depth;
+}
+
 /// A book as a list of pages that can be drawn at any size.
 abstract class PageSource {
+  /// Extra sharpness for zoomed pages; rasters are made this many times finer.
+  double renderScale = 1;
+
   String get title;
   int get pageCount;
 
@@ -108,6 +117,9 @@ abstract class PageSource {
 
   /// The pictures on page [index], for filters and colorizing. Empty when the format has none to offer.
   Future<List<PageImage>> imagesOn(int index, Size page) async => const [];
+
+  /// Chapters, in reading order.
+  Future<List<TocEntry>> tableOfContents() async => const [];
 
   /// The text of page [index], sentence by sentence.
   Future<List<SpokenSentence>> sentencesOn(int index) async => const [];
@@ -199,8 +211,8 @@ class PdfSource extends PageSource {
     final w = pdf.width * scale, h = pdf.height * scale;
     final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
     final rendered = await pdf.render(
-      fullWidth: w * dpr,
-      fullHeight: h * dpr,
+      fullWidth: w * dpr * renderScale,
+      fullHeight: h * dpr * renderScale,
       backgroundColor: 0xFFFFFFFF,
     );
     if (rendered == null) return;
@@ -257,6 +269,20 @@ class PdfSource extends PageSource {
         paint,
       );
     }
+  }
+
+  @override
+  Future<List<TocEntry>> tableOfContents() async {
+    final out = <TocEntry>[];
+    void walk(List<PdfOutlineNode> nodes, int depth) {
+      for (final n in nodes) {
+        if (n.dest != null) out.add(TocEntry(n.title, n.dest!.pageNumber - 1, depth));
+        walk(n.children, depth + 1);
+      }
+    }
+
+    walk(await doc.loadOutline(), 0);
+    return out;
   }
 
   @override
@@ -437,8 +463,9 @@ class PageBreak extends Block {}
 sealed class Placed {}
 
 class PlacedText extends Placed {
-  PlacedText(this.painter, this.top, this.clipTop, this.clipBottom, this.lang);
+  PlacedText(this.painter, this.top, this.clipTop, this.clipBottom, this.lang, this.heading);
   final String? lang;
+  final int heading;
   final TextPainter painter;
   final double top, clipTop, clipBottom;
 }
@@ -528,7 +555,7 @@ class TextSource extends PageSource {
                 continue;
               }
             }
-            pages.last.add(PlacedText(painter, y, top, top + used, b.lang ?? lang));
+            pages.last.add(PlacedText(painter, y, top, top + used, b.lang ?? lang, b.heading));
             y += used;
             top += used;
             from = fit;
@@ -550,6 +577,13 @@ class TextSource extends PageSource {
         PageImage(contentId(placed.bytes), placed.rect.shift(Offset(m.left, m.top)), () async => placed.bytes),
     ];
   }
+
+  @override
+  Future<List<TocEntry>> tableOfContents() async => [
+        for (final (i, page) in _pages.indexed)
+          for (final placed in page.whereType<PlacedText>())
+            if (placed.heading > 0 && placed.clipTop == 0) TocEntry(placed.painter.plainText, i, placed.heading - 1),
+      ];
 
   @override
   Future<List<SpokenSentence>> sentencesOn(int index) async {
@@ -631,7 +665,7 @@ class TextSource extends PageSource {
           canvas.restore();
         case PlacedImage(:final bytes, :final rect):
           final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
-          final codec = await ui.instantiateImageCodec(bytes, targetWidth: style.imageUpscale ? null : (rect.width * dpr).ceil());
+          final codec = await ui.instantiateImageCodec(bytes, targetWidth: style.imageUpscale ? null : (rect.width * dpr * renderScale).ceil());
           final frame = await codec.getNextFrame();
           codec.dispose();
           final image = frame.image;
@@ -841,7 +875,7 @@ class CbzSource extends PageSource {
   @override
   Future<void> paint(Canvas canvas, int index, Size page, PageStyle style) async {
     final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
-    final codec = await ui.instantiateImageCodec(_images[index].content, targetHeight: style.imageUpscale ? null : (page.height * dpr).ceil());
+    final codec = await ui.instantiateImageCodec(_images[index].content, targetHeight: style.imageUpscale ? null : (page.height * dpr * renderScale).ceil());
     final frame = await codec.getNextFrame();
     codec.dispose();
     final image = frame.image;

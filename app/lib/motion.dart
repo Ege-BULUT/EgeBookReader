@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -12,7 +13,8 @@ const easeSettle = Cubic(0.34, 1.4, 0.64, 1);
 /// E-ink panels and people who asked the system for less motion get none.
 bool motionOn(BuildContext context, Settings s) => !s.isEink && !MediaQuery.disableAnimationsOf(context);
 
-/// The app's mark: an E whose spine and arms are drawn in, then the ribbon slides out of the spine.
+/// The app's mark. With [progress] below 1 it is part way through its entrance: the spine and arms spring into place,
+/// the ribbon unfurls from under the spine, light crosses the whole.
 class LogoMark extends StatelessWidget {
   const LogoMark({super.key, required this.size, required this.ink, required this.ribbon, this.progress = 1});
   final double size, progress;
@@ -30,28 +32,89 @@ class _LogoPainter extends CustomPainter {
 
   double _part(double from, double to, Curve curve) => curve.transform(((t - from) / (to - from)).clamp(0.0, 1.0));
 
+  // The arms end on a slant, like the edge of a page block seen from the side.
+  Path _arm(double top, double length, {required bool slantDown}) {
+    final slant = 3 * (length / 38).clamp(0.0, 1.0);
+    return Path()
+      ..moveTo(0, top)
+      ..lineTo(slantDown ? length - slant : length, top)
+      ..lineTo(slantDown ? length : length - slant, top + 8)
+      ..lineTo(0, top + 8)
+      ..close();
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     canvas.scale(size.height / 46);
-    final p = Paint()..color = ink;
-    canvas.drawRect(Rect.fromLTWH(0, 0, 8, 46 * _part(0, 0.3, easeEnter)), p);
-    canvas.drawRect(Rect.fromLTWH(0, 0, 38 * _part(0.1, 0.4, easeEnter), 8), p);
-    canvas.drawRect(Rect.fromLTWH(0, 38, 38 * _part(0.2, 0.5, easeEnter), 8), p);
-    final out = 26 * _part(0.5, 1, easeSettle);
-    if (out <= 0) return;
-    canvas.save();
-    canvas.clipRect(const Rect.fromLTWH(8, 0, 34, 46));
-    canvas.drawPath(
-      Path()
-        ..moveTo(8 - 26 + out, 19)
-        ..lineTo(8 + out, 19)
-        ..lineTo(3 + out, 23)
-        ..lineTo(8 + out, 27)
-        ..lineTo(8 - 26 + out, 27)
-        ..close(),
-      Paint()..color = ribbon,
-    );
-    canvas.restore();
+
+    // A small lift when the ribbon comes out, then back to rest.
+    final lift = 1 + 0.05 * sin(pi * _part(0.38, 0.72, Curves.easeInOut));
+    canvas.translate(19, 23);
+    canvas.scale(lift);
+    canvas.translate(-19, -23);
+
+    final spine = _part(0, 0.2, easeSettle);
+    final top = 38 * _part(0.1, 0.34, easeSettle);
+    final bottom = 38 * _part(0.16, 0.4, easeSettle);
+    final paint = Paint()..color = ink;
+    final body = Path()
+      ..addRect(Rect.fromCenter(center: const Offset(4, 23), width: 8, height: 46 * spine))
+      ..addPath(_arm(0, top, slantDown: false), Offset.zero)
+      ..addPath(_arm(38, bottom, slantDown: true), Offset.zero);
+
+    final out = 26 * _part(0.38, 0.78, easeSettle);
+    if (out > 0) {
+      // The ribbon unfurls: a travelling wave, pinned at the spine, that dies away as it settles.
+      final amplitude = 3.4 * (1 - _part(0.5, 0.95, Curves.easeOut));
+      double wave(double x) => amplitude * sin(x / 26 * pi * 1.7 - t * 24) * (x / 26);
+      final shape = Path()..moveTo(8, 19 + wave(0));
+      const steps = 16;
+      for (var i = 1; i <= steps; i++) {
+        final x = out * i / steps;
+        shape.lineTo(8 + x, 19 + wave(x));
+      }
+      shape.lineTo(8 + out - 5 * (out / 26), 23 + wave(out));
+      for (var i = steps; i >= 0; i--) {
+        final x = out * i / steps;
+        shape.lineTo(8 + x, 27 + wave(x));
+      }
+      shape.close();
+      canvas.save();
+      canvas.clipRect(const Rect.fromLTWH(8, -8, 40, 62));
+      canvas.drawPath(shape, Paint()..color = ribbon);
+      canvas.restore();
+
+      final fold = _part(0.68, 0.84, easeEnter);
+      if (fold > 0) {
+        canvas.drawPath(
+          Path()
+            ..moveTo(8, 27)
+            ..lineTo(8 + 4 * fold, 27)
+            ..lineTo(8, 27 + 3.5 * fold)
+            ..close(),
+          Paint()..color = Color.lerp(ribbon, const Color(0xFF000000), 0.25)!,
+        );
+      }
+    }
+    canvas.drawPath(body, paint);
+
+    // A band of light crosses the finished mark once.
+    final sheen = _part(0.8, 1, Curves.easeInOut);
+    if (sheen > 0 && sheen < 1) {
+      final x = -14 + 70 * sheen;
+      canvas.save();
+      canvas.clipPath(body);
+      canvas.drawRect(
+        const Rect.fromLTWH(0, 0, 38, 46),
+        Paint()
+          ..shader = ui.Gradient.linear(Offset(x - 9, 0), Offset(x + 9, 12), [
+            const Color(0x00FFFFFF),
+            const Color(0x66FFFFFF),
+            const Color(0x00FFFFFF),
+          ], const [0, 0.5, 1]),
+      );
+      canvas.restore();
+    }
   }
 
   @override

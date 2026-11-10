@@ -1,7 +1,6 @@
 import 'dart:math';
 import 'dart:ui' as ui;
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
@@ -108,6 +107,7 @@ class PageCurlView extends StatefulWidget {
     required this.still,
     required this.onTurned,
     required this.onTap,
+    this.onZoomChanged,
   });
 
   final ui.FragmentProgram program;
@@ -126,6 +126,9 @@ class PageCurlView extends StatefulWidget {
   final void Function(int dir) onTurned;
   final void Function(Offset local, Size size) onTap;
 
+  /// Called with the scale when a pinch settles, so sharper pages can be drawn for it.
+  final ValueChanged<double>? onZoomChanged;
+
   @override
   State<PageCurlView> createState() => PageCurlViewState();
 }
@@ -142,7 +145,17 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
   Offset _from = Offset.zero, _to = Offset.zero;
   bool _landing = false;
   Size _size = Size.zero;
-  VelocityTracker? _tracker;
+
+  // Zoom. One finger turns the page or, when zoomed, moves it; two fingers always zoom, so the two can never be confused.
+  double _scale = 1, _scaleAtStart = 1;
+  Offset _pan = Offset.zero;
+  Offset _dragTotal = Offset.zero;
+  int _fingers = 0;
+  bool _pinched = false;
+
+  /// Once a pinch has started, no page turns until every finger has lifted.
+  bool get _zoomed => _scale > 1.01;
+  DateTime _lastZoomTap = DateTime(2000);
 
   double get _hinge => widget.spread ? _size.width / 2 : 0;
   double get _pageW => widget.spread ? _size.width / 2 : _size.width;
@@ -257,62 +270,152 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
     _land(completeTurn: true, velocity: _pageW * 1.5);
   }
 
+  void _scaleStart(ScaleStartDetails d) {
+    _start = d.localFocalPoint;
+    _dragTotal = Offset.zero;
+    _scaleAtStart = _scale;
+  }
+
+  void _scaleUpdate(ScaleUpdateDetails d) {
+    if (d.pointerCount >= 2) {
+      if (_dir != 0 && !_landing) {
+        // A second finger soon after the first means a pinch, not a turn that went wrong.
+        if ((_finger - _flat).distance < 80 || _dir < 0) {
+          _land(completeTurn: false);
+        } else {
+          return;
+        }
+      }
+      _pinched = true;
+      final next = (_scaleAtStart * d.scale).clamp(1.0, 5.0);
+      final point = (d.localFocalPoint - _pan) / _scale;
+      setState(() {
+        _scale = next;
+        _pan = _clampPan(d.localFocalPoint - point * next + d.focalPointDelta);
+      });
+      return;
+    }
+    if (_pinched && _fingers > 0 && !_zoomed) return;
+    if (_zoomed) {
+      setState(() => _pan = _clampPan(_pan + d.focalPointDelta));
+      return;
+    }
+    _dragTotal += d.focalPointDelta;
+    if (_dir == 0 && !_anim.isAnimating) {
+      if (_dragTotal.dx.abs() < 10 || _dragTotal.dy.abs() > _dragTotal.dx.abs() * 1.4) return;
+      final dir = _dragTotal.dx < 0 ? 1 : -1;
+      if (!widget.animate) {
+        if (widget.canGo(dir)) widget.onTurned(dir);
+        _pinched = true; // one change per swipe
+        return;
+      }
+      if (!_begin(dir, _start)) return;
+      _finger = dir > 0 ? _flat : _turned;
+    }
+    if (_dir != 0 && !_landing) _track(d.localFocalPoint);
+  }
+
+  void _scaleEnd(ScaleEndDetails d) {
+    if (_dir != 0 && !_landing) {
+      final vx = d.velocity.pixelsPerSecond.dx;
+      final projected = _finger.dx + vx * 0.18;
+      // On a single page the turned position is off screen, so half way is measured on the visible part.
+      final middle = _dir > 0
+          ? _size.width * (widget.spread ? 0.6 : 0.55)
+          : (widget.spread ? _size.width * 0.4 : 0.0);
+      final towardTurned = projected < middle;
+      _land(completeTurn: _dir > 0 ? towardTurned : !towardTurned, velocity: vx.abs());
+    }
+    if (_scale < 1.03 && _scale != 1) resetZoom();
+    if (d.pointerCount == 0 || _pinched) widget.onZoomChanged?.call(_scale);
+  }
+
+  Offset _clampPan(Offset p) => Offset(
+        p.dx.clamp(_size.width * (1 - _scale), 0.0),
+        p.dy.clamp(_size.height * (1 - _scale), 0.0),
+      );
+
+  void resetZoom() {
+    setState(() {
+      _scale = 1;
+      _pan = Offset.zero;
+    });
+    widget.onZoomChanged?.call(1);
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, c) {
       _size = c.biggest;
       final pages = _pages;
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapUp: (d) => widget.onTap(d.localPosition, _size),
-        onHorizontalDragStart: (d) {
-          _start = d.localPosition;
-          _tracker = VelocityTracker.withKind(d.kind ?? ui.PointerDeviceKind.touch);
+      return Listener(
+        onPointerDown: (_) {
+          // Decided the moment a second finger lands, before any movement.
+          if (++_fingers >= 2) _pinched = true;
         },
-        onHorizontalDragUpdate: (d) {
-          _tracker?.addPosition(d.sourceTimeStamp ?? Duration.zero, d.localPosition);
-          if (_dir == 0 && !_anim.isAnimating) {
-            final dir = d.delta.dx < 0 ? 1 : (d.delta.dx > 0 ? -1 : 0);
-            if (!widget.animate) {
-              if (widget.canGo(dir)) widget.onTurned(dir);
-              _tracker = null;
-              return;
-            }
-            if (_tracker == null || !_begin(dir, _start)) return;
-            _finger = dir > 0 ? _flat : _turned;
-          }
-          if (_dir != 0 && !_landing) _track(d.localPosition);
+        onPointerUp: (_) {
+          if (--_fingers == 0) _pinched = false;
         },
-        onHorizontalDragEnd: (d) {
-          if (_dir == 0 || _landing) return;
-          final vx = _tracker?.getVelocity().pixelsPerSecond.dx ?? 0;
-          final projected = _finger.dx + vx * 0.18;
-          // On a single page the turned position is off screen, so half way is measured on the visible part.
-          final middle = _dir > 0
-              ? _size.width * (widget.spread ? 0.6 : 0.55)
-              : (widget.spread ? _size.width * 0.4 : 0.0);
-          final towardTurned = projected < middle;
-          final complete = _dir > 0 ? towardTurned : !towardTurned;
-          _land(completeTurn: complete, velocity: vx.abs());
+        onPointerCancel: (_) {
+          if (--_fingers == 0) _pinched = false;
         },
-        child: pages == null
-            ? widget.still
-            : CustomPaint(
-                size: Size.infinite,
-                painter: CurlPainter(
-                  shader: _shader,
-                  fold: _fold,
-                  hinge: _hinge,
-                  pageW: _pageW,
-                  showThrough: !widget.spread,
-                  paper: widget.paper,
-                  front: pages.front,
-                  back: pages.back,
-                  under: pages.under,
-                  left: pages.left,
-                  repaint: _frame,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapUp: (d) {
+            if (!_zoomed) return widget.onTap(d.localPosition, _size);
+            // Zoomed in, taps must not turn pages; a double tap goes back to the whole page.
+            final now = DateTime.now();
+            if (now.difference(_lastZoomTap).inMilliseconds < 300) resetZoom();
+            _lastZoomTap = now;
+          },
+          onScaleStart: _scaleStart,
+          onScaleUpdate: _scaleUpdate,
+          onScaleEnd: _scaleEnd,
+          child: ClipRect(
+            child: Stack(fit: StackFit.expand, children: [
+              if (pages == null)
+                Transform(
+                  transform: Matrix4.identity()
+                    ..translateByDouble(_pan.dx, _pan.dy, 0, 1)
+                    ..scaleByDouble(_scale, _scale, 1, 1),
+                  child: widget.still,
+                )
+              else
+                CustomPaint(
+                  size: Size.infinite,
+                  painter: CurlPainter(
+                    shader: _shader,
+                    fold: _fold,
+                    hinge: _hinge,
+                    pageW: _pageW,
+                    showThrough: !widget.spread,
+                    paper: widget.paper,
+                    front: pages.front,
+                    back: pages.back,
+                    under: pages.under,
+                    left: pages.left,
+                    repaint: _frame,
+                  ),
                 ),
-              ),
+              if (_zoomed)
+                Positioned(
+                  bottom: 18,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: resetZoom,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
+                        child: Text('%${(_scale * 100).round()}  ·  Sığdır', style: const TextStyle(color: Colors.white, fontSize: 13)),
+                      ),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+        ),
       );
     });
   }

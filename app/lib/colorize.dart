@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
@@ -60,6 +61,14 @@ class Colorizer extends ChangeNotifier {
   final _state = <String, JobState>{};
   bool _pumping = false;
 
+  /// Where each picture came from, for the gallery: id to title and page number.
+  final _origins = <String, Map<String, dynamic>>{};
+
+  /// Pictures the reader chose to see as they were.
+  final _hidden = <String>{};
+  File get _originsFile => File(p.join(_out.path, 'origins.json'));
+  File get _hiddenFile => File(p.join(_out.path, 'hidden.txt'));
+
   /// Runs after a picture is finished, so a reader can redraw the page that shows it.
   void Function(String id)? onDone;
 
@@ -71,6 +80,30 @@ class Colorizer extends ChangeNotifier {
     _models = Directory(p.join(docs.path, 'models'));
     _out = Directory(p.join(docs.path, 'colorized'));
     await _out.create(recursive: true);
+    if (_originsFile.existsSync()) {
+      (jsonDecode(_originsFile.readAsStringSync()) as Map<String, dynamic>).forEach((k, v) => _origins[k] = v as Map<String, dynamic>);
+    }
+    if (_hiddenFile.existsSync()) _hidden.addAll(_hiddenFile.readAsLinesSync());
+  }
+
+  bool showsColor(String id) => !_hidden.contains(id);
+
+  /// Switches a picture between its colours and how it was printed, everywhere it shows.
+  void setShowsColor(String id, bool show) {
+    show ? _hidden.remove(id) : _hidden.add(id);
+    _hiddenFile.writeAsString(_hidden.join('\n'));
+    notifyListeners();
+    onDone?.call(id);
+  }
+
+  File originalFile(String id) => File(p.join(_out.path, 'originals', id));
+  bool originalExists(String id) => originalFile(id).existsSync();
+  Future<Uint8List?> originalBytes(String id) async => originalExists(id) ? originalFile(id).readAsBytes() : null;
+
+  String captionOf(String id) {
+    final o = _origins[id];
+    if (o == null) return 'Renklendirilmiş görsel';
+    return '${o['title']} · Sayfa ${o['page']}';
   }
 
   /// Raise the suffix when the model or the merge changes, so old results are made again.
@@ -79,11 +112,14 @@ class Colorizer extends ChangeNotifier {
 
   JobState stateOf(String id) => hasResult(id) ? JobState.done : (_state[id] ?? JobState.none);
 
-  /// Everything colorized so far, newest first: the app's gallery.
-  List<File> gallery() {
-    final files = _out.listSync().whereType<File>().where((f) => f.path.endsWith('.png')).toList();
+  /// Ids of everything colorized so far, newest first: the app's gallery.
+  List<String> gallery() {
+    const suffix = '-ddcolor3.png';
+    final files = _out.listSync().whereType<File>().where((f) => f.path.endsWith(suffix)).toList();
     files.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
-    return files;
+    return [
+      for (final f in files) p.basename(f.path).substring(0, p.basename(f.path).length - suffix.length),
+    ];
   }
 
   Future<void> downloadModel() async {
@@ -125,7 +161,8 @@ class Colorizer extends ChangeNotifier {
   }
 
   /// [front] puts the picture ahead of everything waiting; a person tapped it.
-  void enqueue(PageImage image, {bool front = false, bool rest = true}) {
+  void enqueue(PageImage image, {bool front = false, bool rest = true, String? title, int? pageNumber}) {
+    if (title != null) _origins[image.id] = {'title': title, 'page': pageNumber};
     final state = stateOf(image.id);
     if (!modelReady || state == JobState.done || state == JobState.skipped || state == JobState.running) return;
     if (state == JobState.waiting) {
@@ -162,7 +199,13 @@ class Colorizer extends ChangeNotifier {
       notifyListeners();
       final clock = Stopwatch()..start();
       try {
-        final colored = await _colorize(await image.bytes(), fileFor(image.id));
+        final encoded = await image.bytes();
+        final colored = await _colorize(encoded, fileFor(image.id));
+        if (colored) {
+          await originalFile(image.id).create(recursive: true);
+          await originalFile(image.id).writeAsBytes(encoded);
+          await _originsFile.writeAsString(jsonEncode(_origins));
+        }
         _state[image.id] = colored ? JobState.done : JobState.skipped;
       } catch (_) {
         _state[image.id] = JobState.failed;

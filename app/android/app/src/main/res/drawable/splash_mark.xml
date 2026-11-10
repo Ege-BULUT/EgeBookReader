@@ -1,5 +1,0 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <!-- The logo without its ribbon: the app slides the ribbon out as its first motion. -->
-    <path android:fillColor="#2A2622" android:pathData="M35 31h38v8H43v30h30v8H35z"/>
-</vector>
