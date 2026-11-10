@@ -34,3 +34,13 @@ that names the old one.
 - Why: no AGPL decision is forced yet, and both feed the same page-image pipeline that the curl shader needs.
 - This does not settle the final engines; see `open-questions.md` (Q1, Q2).
 - For the proof of concept only.
+
+## 2026-11-10 D5 Proof of concept shipped to the user for trying
+
+- First APK sent over OpenCommunicate. Contains: library, PDF/EPUB/TXT/CBZ, procedural curl in single and two-page
+  layouts, tap and vertical scroll modes, 4 themes in light and dark, typography basics, PDF reflow, volume keys,
+  actual book mode.
+- Deliberately not in it yet: tap-zone editor, custom theme, font browser, image filters and colorize, read aloud, the
+  remaining formats.
+- Known limits: PDF reflow drops pictures; dark themes invert whole PDF pages, photos included; lighting in actual
+  book mode is baked into the page rather than screen-space.
