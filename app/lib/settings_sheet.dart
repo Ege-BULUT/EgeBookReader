@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
+import 'colorize.dart';
 import 'fonts.dart';
 import 'main.dart' show settings, themeFor;
 import 'motion.dart';
@@ -25,11 +26,11 @@ class _SettingsSheetState extends State<SettingsSheet> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: settings,
+      listenable: Listenable.merge([settings, colorizer]),
       builder: (context, _) {
         final c = settings.palette;
         final motion = motionOn(context, settings);
-        final tabs = [_themeTab, _textTab, _pageTab];
+        final tabs = [_themeTab, _textTab, _pageTab, _imageTab];
         return Theme(
           data: themeFor(c),
           child: AnimatedContainer(
@@ -40,7 +41,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 padding: const EdgeInsets.fromLTRB(22, 18, 22, 4),
                 child: Segmented<int>(
                   value: _tab,
-                  options: const {0: 'Tema', 1: 'Yazı', 2: 'Sayfa'},
+                  options: const {0: 'Tema', 1: 'Yazı', 2: 'Sayfa', 3: 'Görsel'},
                   onChanged: (v) => setState(() => _tab = v),
                 ),
               ),
@@ -211,6 +212,70 @@ class _SettingsSheetState extends State<SettingsSheet> {
       ],
       Toggle('Ses tuşlarıyla çevir', s.volumeKeys, (v) => s.update((x) => x.volumeKeys = v)),
       Toggle('Ses tuşlarını ters çevir', s.invertVolume, (v) => s.update((x) => x.invertVolume = v)),
+    ];
+  }
+}
+
+extension on _SettingsSheetState {
+  List<Widget> _imageTab() {
+    final s = settings;
+    final c = s.palette;
+    final progress = colorizer.downloadProgress;
+    return [
+      Heading('Görsel filtreler'),
+      _SettledSlider(label: 'Doygunluk', value: s.imageSaturation, min: 0, max: 2, percent: true, onEnd: (v) => s.update((x) => x.imageSaturation = v)),
+      _SettledSlider(label: 'Kontrast', value: s.imageContrast, min: 0.6, max: 1.6, percent: true, onEnd: (v) => s.update((x) => x.imageContrast = v)),
+      _SettledSlider(label: 'Keskinlik', value: s.imageSharpen, min: 0, max: 1, percent: true, onEnd: (v) => s.update((x) => x.imageSharpen = v)),
+      Toggle('Yüksek kaliteli büyütme', s.imageUpscale, (v) => s.update((x) => x.imageUpscale = v)),
+      Heading('Renklendirme'),
+      Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(6)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(colorModel.name, style: TextStyle(color: c.ink, fontSize: 16, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 4),
+          Text('Siyah beyaz görselleri telefonun içinde, internetsiz renklendirir. ${colorModel.sizeText}. Lisans: ${colorModel.license}.',
+              style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+          const SizedBox(height: 4),
+          SelectableText(colorModel.source, style: TextStyle(color: c.muted, fontSize: 12)),
+          const SizedBox(height: 10),
+          if (progress != null)
+            LinearProgressIndicator(value: progress, minHeight: 3, color: c.accent, backgroundColor: c.line)
+          else if (colorizer.modelReady)
+            TextButton(
+              onPressed: colorizer.removeModel,
+              style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero),
+              child: const Text('Modeli sil'),
+            )
+          else
+            FilledButton(
+              onPressed: colorizer.downloadModel,
+              style: FilledButton.styleFrom(backgroundColor: c.accent, foregroundColor: c.paper),
+              child: const Text('Modeli indir'),
+            ),
+          if (colorizer.error != null)
+            Padding(padding: const EdgeInsets.only(top: 6), child: Text(colorizer.error!, style: TextStyle(color: c.accent, fontSize: 13))),
+        ]),
+      ),
+      const SizedBox(height: 14),
+      Segmented<ColorizeMode>(
+        value: s.colorizeMode,
+        options: const {ColorizeMode.off: 'Kapalı', ColorizeMode.onDemand: 'Talep üzerine', ColorizeMode.auto: 'Otomatik'},
+        onChanged: (v) => s.update((x) => x.colorizeMode = v),
+      ),
+      if (s.colorizeMode == ColorizeMode.auto)
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('İlk açılışta hazırlanacak sayfa sayısı', style: TextStyle(color: c.ink, fontSize: 15)),
+            const SizedBox(height: 8),
+            Row(children: [
+              _Step(icon: Icons.remove, onTap: () => s.update((x) => x.autoColorizePages = max(1, x.autoColorizePages - 1))),
+              Expanded(child: Text('${s.autoColorizePages}', textAlign: TextAlign.center, style: TextStyle(color: c.ink, fontSize: 16))),
+              _Step(icon: Icons.add, onTap: () => s.update((x) => x.autoColorizePages = min(30, x.autoColorizePages + 1))),
+            ]),
+          ]),
+        ),
     ];
   }
 }

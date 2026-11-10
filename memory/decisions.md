@@ -67,3 +67,17 @@ that names the old one.
   plus image boxes from PDFium, read on PDFium's own isolate because its font callbacks abort on any other), and volume keys
   did nothing in flip mode. The volume keys worked on the emulator; the one difference found was that they were off
   while the menu was open, so that was removed. Not confirmed on the user's phone yet.
+
+## 2026-11-10 D8 Proof of concept 4: image filters and colorize
+
+- Filters (R7.1–R7.3): saturation, contrast, CAS sharpening and Catmull-Rom upscaling in `shaders/image_filter.frag`, applied only to pictures.
+- Colorize (R7.4–R7.10): Qualcomm's official DDColor ONNX export (Apache-2.0, 206 MB download, fetched from Qualcomm's public URL so nothing is
+  re-hosted), run with `flutter_onnxruntime` on the CPU. Only colour comes from the model, at 256²; results are redrawn in the original
+  rectangle, cached by content and listed in the gallery.
+- Screentones are black and white dots with no room for colour at their own lightness, so regions are judged on blurred lightness and dots
+  are tinted like ink on coloured paper. Found by testing: the first merge left halftones colourless.
+- Queue: on-demand jumps the line; auto does the first N pages with pictures before the first open, the rest one by one with a rest as long as the last
+  job, pausing while Android reports moderate heat or battery saver.
+- The release build needs a keep rule for `ai.onnxruntime.**` (R8 renaming crashes JNI). Compressed native libraries keep the APK at 23 MB, under
+  OpenCommunicate's 50 MB limit.
+- The sample book `assets/samples/colorize.epub` uses a Pepper&Carrot page (David Revoy, CC BY 4.0), turned grayscale, credited in the book.

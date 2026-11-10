@@ -1,7 +1,9 @@
 package dev.egebulut.egebookreader
 
 import android.graphics.Rect
+import android.content.Context
 import android.os.Build
+import android.os.PowerManager
 import android.view.KeyEvent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -26,10 +28,19 @@ class MainActivity : FlutterActivity() {
                         applyGestureExclusion()
                         result.success(null)
                     }
+                    "shouldRest" -> result.success(shouldRest())
                     else -> result.notImplemented()
                 }
             }
         }
+    }
+
+    // Background colouring waits while the phone is warm or saving battery.
+    private fun shouldRest(): Boolean {
+        val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val hot = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            power.currentThermalStatus >= PowerManager.THERMAL_STATUS_MODERATE
+        return hot || power.isPowerSaveMode
     }
 
     override fun onPostCreate(savedInstanceState: android.os.Bundle?) {

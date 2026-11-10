@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'dart:ui' as ui;
 
+import 'package:egebookreader/colorize.dart';
 import 'package:egebookreader/curl.dart';
 import 'package:egebookreader/settings.dart';
 import 'package:egebookreader/zones.dart';
@@ -99,5 +101,36 @@ void main() {
       expect(c.scrim, greaterThan(0));
       expect(c.scrim, lessThan(0.9));
     });
+  });
+
+  test('colourising changes nothing without colour, keeps paper white, leaves coloured pictures alone', () {
+    const w = 40, h = 30;
+    final gray = Uint8List(w * h * 4);
+    for (var i = 0; i < gray.length; i += 4) {
+      final v = (i ~/ 4) * 255 ~/ (w * h);
+      gray[i] = gray[i + 1] = gray[i + 2] = v;
+      gray[i + 3] = 255;
+    }
+    final prepared = prepareColorInput(gray, w, h)!;
+    expect(prepared.input.length, 3 * 256 * 256);
+
+    // With no colour added, the merge must give back the picture it was given.
+    final same = mergeColor(prepared, Float32List(2 * 256 * 256), w, h);
+    for (var i = 0; i < gray.length; i++) {
+      expect((same[i] - gray[i]).abs(), lessThanOrEqualTo(1));
+    }
+
+    // Strong colour everywhere: mid greys take it, paper-white stays white.
+    final tinted = mergeColor(prepared, Float32List(2 * 256 * 256)..fillRange(0, 256 * 256, 60), w, h);
+    final mid = (w * h ~/ 2) * 4, last = (w * h - 1) * 4;
+    expect(tinted[mid] - tinted[mid + 1], greaterThan(40));
+    expect((tinted[last] - tinted[last + 1]).abs(), lessThan(8));
+
+    final red = Uint8List(4 * 16);
+    for (var i = 0; i < red.length; i += 4) {
+      red[i] = 200;
+      red[i + 3] = 255;
+    }
+    expect(prepareColorInput(red, 4, 4), isNull);
   });
 }

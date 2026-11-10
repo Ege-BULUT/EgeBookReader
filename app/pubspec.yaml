@@ -42,6 +42,7 @@ dependencies:
   path_provider: ^2.1.6
   pdfium_dart: ^0.4.1
   ffi: ^2.1.0
+  flutter_onnxruntime: ^1.9.0
 
 dev_dependencies:
   flutter_test:
@@ -68,6 +69,7 @@ flutter:
   shaders:
     - shaders/page_curl.frag
     - shaders/page_dark.frag
+    - shaders/image_filter.frag
 
   assets:
     - assets/samples/

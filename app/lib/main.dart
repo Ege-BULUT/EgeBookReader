@@ -9,7 +9,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import 'colorize.dart';
 import 'fonts.dart';
+import 'gallery.dart';
 import 'motion.dart';
 import 'reader.dart';
 import 'settings.dart';
@@ -22,6 +24,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await pdfrxFlutterInitialize();
   await fonts.load();
+  await colorizer.load();
   await settings.load();
   await library.load();
   runApp(const EgeBookReaderApp());
@@ -33,6 +36,7 @@ class Book {
   final String path, title;
   final String? coverPath;
   int page, total;
+  bool colorizeStarted = false;
 
   /// Positions as fractions of the book, so they survive a new font size or page layout.
   final List<double> bookmarks;
@@ -40,7 +44,7 @@ class Book {
   double get progress => total <= 1 ? 0 : (page + 1) / total;
 
   Map<String, dynamic> toJson() =>
-      {'path': path, 'title': title, 'cover': coverPath, 'page': page, 'total': total, 'bookmarks': bookmarks};
+      {'path': path, 'title': title, 'cover': coverPath, 'page': page, 'total': total, 'bookmarks': bookmarks, 'colorizeStarted': colorizeStarted};
   static Book fromJson(Map<String, dynamic> j) => Book(
         j['path'] as String,
         j['title'] as String,
@@ -48,7 +52,7 @@ class Book {
         page: j['page'] as int,
         total: j['total'] as int,
         bookmarks: ((j['bookmarks'] as List<dynamic>?) ?? const []).map((e) => (e as num).toDouble()).toList(),
-      );
+      )..colorizeStarted = j['colorizeStarted'] as bool? ?? false;
 }
 
 class Library extends ChangeNotifier {
@@ -61,16 +65,26 @@ class Library extends ChangeNotifier {
     if (_index.existsSync()) {
       final list = jsonDecode(_index.readAsStringSync()) as List<dynamic>;
       books.addAll(list.map((e) => Book.fromJson(e as Map<String, dynamic>)).where((b) => File(b.path).existsSync()));
-    } else {
-      for (final (asset, name) in const [('sample.epub', 'Dunyanin Dilleri.epub'), ('sample.pdf', 'Sayfa Örneği.pdf')]) {
-        final data = await rootBundle.load('assets/samples/$asset');
-        final file = File(p.join(_dir.path, 'books', name));
-        await file.create(recursive: true);
-        await file.writeAsBytes(data.buffer.asUint8List());
-        await _add(file.path);
-      }
-      save();
     }
+    // Each sample arrives once; one that was removed from the library stays removed.
+    final seen = File(p.join(_dir.path, 'samples-added.txt'));
+    final added = seen.existsSync() ? seen.readAsLinesSync().toSet() : <String>{};
+    if (_index.existsSync() && added.isEmpty) added.addAll(const ['sample.epub', 'sample.pdf']);
+    for (final (asset, name) in const [
+      ('sample.epub', 'Dunyanin Dilleri.epub'),
+      ('sample.pdf', 'Sayfa Örneği.pdf'),
+      ('colorize.epub', 'Renklendirme Denemesi.epub'),
+    ]) {
+      if (added.contains(asset)) continue;
+      final data = await rootBundle.load('assets/samples/$asset');
+      final file = File(p.join(_dir.path, 'books', name));
+      await file.create(recursive: true);
+      await file.writeAsBytes(data.buffer.asUint8List());
+      await _add(file.path);
+      added.add(asset);
+    }
+    await seen.writeAsString(added.join('\n'));
+    await save();
   }
 
   Future<void> save() => _index.writeAsString(jsonEncode(books));
@@ -302,6 +316,15 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                           index: 0,
                           child: Text('Kitaplık',
                               style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 32, height: 1.1)),
+                        ),
+                      ),
+                      _Entering(
+                        parent: _enter,
+                        index: 0,
+                        child: IconButton(
+                          tooltip: 'Galeri',
+                          icon: Icon(Icons.photo_library_outlined, color: c.muted, size: 21),
+                          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GalleryScreen())),
                         ),
                       ),
                       if (_importing)

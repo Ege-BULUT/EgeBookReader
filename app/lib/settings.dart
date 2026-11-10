@@ -14,6 +14,8 @@ enum PaperTheme { paper, parchment, oled, eink, custom }
 
 enum TurnMode { flip, tap, scroll }
 
+enum ColorizeMode { off, onDemand, auto }
+
 /// Colours of one theme in one brightness. Contrast is worked out in memory/research/fonts-design.md.
 class Palette {
   const Palette(this.paper, this.ink, this.muted, this.grain);
@@ -161,6 +163,10 @@ class Settings extends ChangeNotifier {
   bool reflow = false;
   bool actualBook = false;
   bool menuHintSeen = false;
+  double imageSaturation = 1, imageContrast = 1, imageSharpen = 0;
+  bool imageUpscale = false;
+  ColorizeMode colorizeMode = ColorizeMode.onDemand;
+  int autoColorizePages = 3;
   final customLight = CustomPaper(const Color(0xFFE9EEF0));
   final customDark = CustomPaper(const Color(0xFF12202A))
     ..paper = const Color(0xFF12202A)
@@ -195,6 +201,10 @@ class Settings extends ChangeNotifier {
         grain: isEink || theme == PaperTheme.custom ? 0 : (palette.grain + (actualBook ? 0.35 : 0)).clamp(0, 1),
         actualBook: bookFilters,
         backgroundKey: theme == PaperTheme.custom ? custom.key : null,
+        imageSaturation: imageSaturation,
+        imageContrast: imageContrast,
+        imageSharpen: imageSharpen,
+        imageUpscale: imageUpscale,
       );
 
   late final File _file;
@@ -226,6 +236,12 @@ class Settings extends ChangeNotifier {
       inkOverride = ink == null ? null : Color(ink);
       if (j['customLight'] != null) customLight.readJson(j['customLight'] as Map<String, dynamic>);
       if (j['customDark'] != null) customDark.readJson(j['customDark'] as Map<String, dynamic>);
+      imageSaturation = (j['imageSaturation'] as num?)?.toDouble() ?? 1;
+      imageContrast = (j['imageContrast'] as num?)?.toDouble() ?? 1;
+      imageSharpen = (j['imageSharpen'] as num?)?.toDouble() ?? 0;
+      imageUpscale = j['imageUpscale'] as bool? ?? false;
+      colorizeMode = ColorizeMode.values.byName(j['colorizeMode'] as String? ?? 'onDemand');
+      autoColorizePages = j['autoColorizePages'] as int? ?? 3;
       if (j['zones'] != null) zones = TapLayout.fromJson(j['zones'] as Map<String, dynamic>);
     } catch (_) {
       // A settings file from another version is not worth stopping the app for.
@@ -256,6 +272,12 @@ class Settings extends ChangeNotifier {
       'customLight': customLight.toJson(),
       'customDark': customDark.toJson(),
       'zones': zones.toJson(),
+      'imageSaturation': imageSaturation,
+      'imageContrast': imageContrast,
+      'imageSharpen': imageSharpen,
+      'imageUpscale': imageUpscale,
+      'colorizeMode': colorizeMode.name,
+      'autoColorizePages': autoColorizePages,
     }));
   }
 

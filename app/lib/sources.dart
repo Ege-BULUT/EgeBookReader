@@ -14,6 +14,8 @@ import 'package:pdfium_dart/pdfium_dart.dart' as pdfium_api;
 import 'package:pdfrx/pdfrx.dart';
 import 'package:xml/xml.dart';
 
+import 'colorize.dart';
+
 /// Everything that changes how a page looks; a new value means every page is rendered again.
 class PageStyle {
   const PageStyle({
@@ -30,6 +32,10 @@ class PageStyle {
     required this.grain,
     required this.actualBook,
     this.backgroundKey,
+    this.imageSaturation = 1,
+    this.imageContrast = 1,
+    this.imageSharpen = 0,
+    this.imageUpscale = false,
   });
 
   final Color paper, ink;
@@ -41,6 +47,10 @@ class PageStyle {
 
   /// Identifies a composed custom background; null when the paper is a plain colour.
   final String? backgroundKey;
+  final double imageSaturation, imageContrast, imageSharpen;
+  final bool imageUpscale;
+
+  bool get imageFiltered => imageSaturation != 1 || imageContrast != 1 || imageSharpen > 0 || imageUpscale;
 
   /// Strength of the paper grain, 0 for none.
   final double grain;
@@ -62,10 +72,14 @@ class PageStyle {
       other.actualBook == actualBook &&
       other.margin == margin &&
       other.justify == justify &&
-      other.backgroundKey == backgroundKey;
+      other.backgroundKey == backgroundKey &&
+      other.imageSaturation == imageSaturation &&
+      other.imageContrast == imageContrast &&
+      other.imageSharpen == imageSharpen &&
+      other.imageUpscale == imageUpscale;
 
   @override
-  int get hashCode => Object.hash(paper, ink, fontSize, lineHeight, fontFamily, bold, italic, grain, actualBook, margin, justify, backgroundKey);
+  int get hashCode => Object.hash(paper, ink, fontSize, lineHeight, fontFamily, bold, italic, grain, actualBook, margin, justify, backgroundKey, imageSaturation, imageContrast, imageSharpen, imageUpscale);
 }
 
 /// A book as a list of pages that can be drawn at any size.
@@ -80,10 +94,37 @@ abstract class PageSource {
   /// Draws page [index] (ink and pictures only; the paper is already painted).
   Future<void> paint(Canvas canvas, int index, Size page, PageStyle style);
 
+  /// The pictures on page [index], for filters and colorizing. Empty when the format has none to offer.
+  Future<List<PageImage>> imagesOn(int index, Size page) async => const [];
+
   /// A picture to use as the cover, or null.
   Future<Uint8List?> coverBytes() async => null;
 
   void dispose() {}
+}
+
+ui.FragmentProgram? _filterProgram;
+
+/// Draws a picture through the user's image filters, or plainly if none are on.
+Future<void> drawBookImage(Canvas canvas, ui.Image image, Rect src, Rect dst, PageStyle s, Paint plain) async {
+  if (!s.imageFiltered) {
+    canvas.drawImageRect(image, src, dst, plain);
+    return;
+  }
+  final program = _filterProgram ??= await ui.FragmentProgram.fromAsset('shaders/image_filter.frag');
+  final shader = program.fragmentShader();
+  final w = image.width.toDouble(), h = image.height.toDouble();
+  final values = [
+    dst.left, dst.top, dst.width, dst.height,
+    src.left / w, src.top / h, src.width / w, src.height / h,
+    1 / w, 1 / h,
+    s.imageSaturation, s.imageContrast, s.imageSharpen, s.imageUpscale ? 1.0 : 0.0,
+  ];
+  for (var i = 0; i < values.length; i++) {
+    shader.setFloat(i, values[i]);
+  }
+  shader.setImageSampler(0, image);
+  canvas.drawRect(dst, Paint()..shader = shader..blendMode = plain.blendMode);
 }
 
 Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
@@ -155,7 +196,17 @@ class PdfSource extends PageSource {
     if (style.darkPaper) {
       await _paintDark(canvas, index, image, src, dst, scale, style);
     } else {
-      canvas.drawImageRect(image, src, dst, Paint()..filterQuality = FilterQuality.medium..blendMode = BlendMode.multiply);
+      final plain = Paint()..filterQuality = FilterQuality.medium..blendMode = BlendMode.multiply;
+      canvas.drawImageRect(image, src, dst, plain);
+      if (style.imageFiltered) {
+        final toPixels = image.width / dst.width;
+        for (final box in await _boxes(index)) {
+          final onPage = Rect.fromLTRB(box.left * scale, box.top * scale, box.right * scale, box.bottom * scale).shift(dst.topLeft).intersect(dst);
+          if (onPage.isEmpty) continue;
+          final from = Rect.fromLTRB((onPage.left - dst.left) * toPixels, (onPage.top - dst.top) * toPixels, (onPage.right - dst.left) * toPixels, (onPage.bottom - dst.top) * toPixels);
+          await drawBookImage(canvas, image, from, onPage, style, Paint()..filterQuality = FilterQuality.medium);
+        }
+      }
     }
     image.dispose();
   }
@@ -175,7 +226,7 @@ class PdfSource extends PageSource {
       ..filterQuality = FilterQuality.medium
       ..colorFilter = dim;
     final toPixels = image.width / dst.width;
-    for (final box in await (_imageBoxes[index] ??= _findImages(index))) {
+    for (final box in await _boxes(index)) {
       final r = Rect.fromLTRB(box.left * scale, box.top * scale, box.right * scale, box.bottom * scale);
       final onPage = r.shift(dst.topLeft).intersect(dst);
       if (onPage.isEmpty) continue;
@@ -191,6 +242,43 @@ class PdfSource extends PageSource {
         paint,
       );
     }
+  }
+
+  Future<List<Rect>> _boxes(int index) => _imageBoxes[index] ??= _findImages(index);
+
+  @override
+  Future<List<PageImage>> imagesOn(int index, Size page) async {
+    final pdf = doc.pages[index];
+    final scale = (page.width / pdf.width) < (page.height / pdf.height) ? page.width / pdf.width : page.height / pdf.height;
+    final origin = Offset((page.width - pdf.width * scale) / 2, (page.height - pdf.height * scale) / 2);
+    final boxes = await _boxes(index);
+    return [
+      for (final (i, box) in boxes.indexed)
+        PageImage(
+          'pdf-${title.hashCode.toRadixString(36)}-$index-$i',
+          Rect.fromLTRB(box.left * scale, box.top * scale, box.right * scale, box.bottom * scale).shift(origin),
+          () => _crop(pdf, box),
+        ),
+    ];
+  }
+
+  /// The picture cut out of the page at up to about 1600 pixels across, as a PNG.
+  Future<Uint8List> _crop(PdfPage pdf, Rect box) async {
+    final zoom = (1600 / box.width).clamp(1.0, 4.0);
+    final rendered = await pdf.render(
+      x: (box.left * zoom).round(),
+      y: (box.top * zoom).round(),
+      width: (box.width * zoom).round(),
+      height: (box.height * zoom).round(),
+      fullWidth: pdf.width * zoom,
+      fullHeight: pdf.height * zoom,
+      backgroundColor: 0xFFFFFFFF,
+    );
+    final image = await _toImage(rendered!);
+    rendered.dispose();
+    final png = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    return png!.buffer.asUint8List();
   }
 
   Future<List<Rect>> _findImages(int index) async {
@@ -343,6 +431,7 @@ class TextSource extends PageSource {
   final List<Block> blocks;
   final String? lang;
   List<List<Placed>> _pages = const [];
+  PageStyle? _laidOutWith;
   @visibleForTesting
   List<List<Placed>> get debugPages => _pages;
 
@@ -358,6 +447,7 @@ class TextSource extends PageSource {
         if (placed is PlacedText) placed.painter.dispose();
       }
     }
+    _laidOutWith = style;
     final margin = _marginOf(style);
     final width = page.width - margin.horizontal;
     final height = page.height - margin.vertical;
@@ -427,6 +517,15 @@ class TextSource extends PageSource {
     onProgress?.call(1);
   }
 
+  @override
+  Future<List<PageImage>> imagesOn(int index, Size page) async {
+    final m = _marginOf(_laidOutWith!);
+    return [
+      for (final placed in _pages[index].whereType<PlacedImage>())
+        PageImage(contentId(placed.bytes), placed.rect.shift(Offset(m.left, m.top)), () async => placed.bytes),
+    ];
+  }
+
   TextPainter _painterFor(TextBlock b, PageStyle s, double width) {
     final size = b.heading == 0 ? s.fontSize : s.fontSize * (1.7 - b.heading * 0.12).clamp(1.05, 1.6);
     final locale = _locale(b.lang ?? lang);
@@ -484,14 +583,16 @@ class TextSource extends PageSource {
           canvas.restore();
         case PlacedImage(:final bytes, :final rect):
           final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
-          final codec = await ui.instantiateImageCodec(bytes, targetWidth: (rect.width * dpr).ceil());
+          final codec = await ui.instantiateImageCodec(bytes, targetWidth: style.imageUpscale ? null : (rect.width * dpr).ceil());
           final frame = await codec.getNextFrame();
           codec.dispose();
           final image = frame.image;
-          canvas.drawImageRect(
+          await drawBookImage(
+            canvas,
             image,
             Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
             rect,
+            style,
             Paint()
               ..filterQuality = FilterQuality.medium
               ..blendMode = style.darkPaper ? BlendMode.srcOver : BlendMode.multiply,
@@ -692,13 +793,25 @@ class CbzSource extends PageSource {
   @override
   Future<void> paint(Canvas canvas, int index, Size page, PageStyle style) async {
     final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
-    final codec = await ui.instantiateImageCodec(_images[index].content, targetHeight: (page.height * dpr).ceil());
+    final codec = await ui.instantiateImageCodec(_images[index].content, targetHeight: style.imageUpscale ? null : (page.height * dpr).ceil());
     final frame = await codec.getNextFrame();
     codec.dispose();
     final image = frame.image;
     final fit = applyBoxFit(BoxFit.contain, Size(image.width.toDouble(), image.height.toDouble()), page);
     final dst = Alignment.center.inscribe(fit.destination, Offset.zero & page);
-    canvas.drawImageRect(image, Offset.zero & fit.source, dst, Paint()..filterQuality = FilterQuality.medium);
+    await drawBookImage(canvas, image, Offset.zero & fit.source, dst, style, Paint()..filterQuality = FilterQuality.medium);
     image.dispose();
+  }
+
+  @override
+  Future<List<PageImage>> imagesOn(int index, Size page) async {
+    final bytes = _images[index].content;
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    final desc = await ui.ImageDescriptor.encoded(buffer);
+    final size = Size(desc.width.toDouble(), desc.height.toDouble());
+    desc.dispose();
+    buffer.dispose();
+    final dst = Alignment.center.inscribe(applyBoxFit(BoxFit.contain, size, page).destination, Offset.zero & page);
+    return [PageImage(contentId(bytes), dst, () async => bytes)];
   }
 }

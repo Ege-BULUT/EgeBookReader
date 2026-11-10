@@ -37,3 +37,10 @@ Details: `research/image-ai.md`.
 - UI font: platform font with fallback (**recommended**, best script coverage) or one chosen family.
 - Fontshare in v1: later (**recommended**; its license terms need a human read).
 - Fonts through Google directly or a privacy mirror: Fontsource/Bunny by default (**recommended**).
+
+### Q4 update, 2026-11-10
+
+Tried Qualcomm's official DDColor ONNX (Apache-2.0, 215 MB float, input 256², 0.42 s on a Mac CPU) on a grayscale Pepper&Carrot
+page against the original colours. It gives plausible warm colours but they differ from the real ones, it bleeds strong colour into
+bright areas and treats a three-panel page as one picture. Good enough to ship as an optional download; whites get protected
+in post-processing. Real manga screentone pages are still untested.

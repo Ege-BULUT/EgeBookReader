@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'colorize.dart';
 import 'curl.dart';
 import 'main.dart';
 import 'motion.dart';
@@ -44,6 +45,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   EdgeInsets _inset = EdgeInsets.zero;
   Color _backdrop = Colors.transparent;
   bool _scrubbing = false;
+  bool _autoStarted = false;
 
   PageSource? _source;
   ui.FragmentProgram? _program;
@@ -65,6 +67,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   int _generation = 0;
 
   final _images = <int, ui.Image>{};
+  final _pageImages = <int, List<PageImage>>{};
   final _rendering = <int>{};
   ui.Image? _blank;
   ui.Image? _customBackground;
@@ -75,6 +78,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     settings.addListener(_settingsChanged);
     _volume.setMethodCallHandler(_onVolume);
+    colorizer.onDone = _colorizedOne;
+    colorizer.addListener(_colorizerChanged);
     _syncVolume();
     _volume.invokeMethod('setReading', true);
     _scroll.addListener(_onScroll);
@@ -111,6 +116,58 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     if (mounted) Navigator.of(context).pop();
   }
 
+  void _colorizerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// A picture finished colouring: redraw the page it is on, which only ever changes that picture.
+  Future<void> _colorizedOne(String id) async {
+    if (!mounted || !colorizer.hasResult(id)) return;
+    final generation = _generation;
+    for (final entry in _pageImages.entries.toList()) {
+      if (!entry.value.any((i) => i.id == id) || !_images.containsKey(entry.key)) continue;
+      final img = await _renderOne(entry.key, _pageSize!, _style!);
+      if (!mounted || generation != _generation) {
+        img.dispose();
+        return;
+      }
+      final old = _images[entry.key];
+      setState(() => _images[entry.key] = img);
+      WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+    }
+  }
+
+  /// Auto mode: the first pages' pictures are coloured before the book shows, the first time only,
+  /// and the rest follow one by one while reading.
+  Future<void> _startAutoColorize() async {
+    if (settings.colorizeMode != ColorizeMode.auto || !colorizer.modelReady || _autoStarted) return;
+    _autoStarted = true;
+    final source = _source!, page = _pageSize!;
+    final firstVisit = !widget.book.colorizeStarted;
+    final first = <PageImage>[];
+    var pagesWithImages = 0;
+    var next = _page;
+    for (; next < _count && pagesWithImages < settings.autoColorizePages; next++) {
+      final images = await source.imagesOn(next, page);
+      if (images.isEmpty) continue;
+      pagesWithImages++;
+      first.addAll(images);
+    }
+    for (final image in first) {
+      colorizer.enqueue(image, rest: false);
+    }
+    if (firstVisit) await colorizer.whenIdle(first.map((i) => i.id));
+    widget.book.colorizeStarted = true;
+    library.save();
+    unawaited(() async {
+      for (var i = next; i < _count && mounted; i++) {
+        for (final image in await source.imagesOn(i, page)) {
+          colorizer.enqueue(image);
+        }
+      }
+    }());
+  }
+
   Future<void> _start() async {
     try {
       _program = await ui.FragmentProgram.fromAsset('shaders/page_curl.frag');
@@ -125,6 +182,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     settings.removeListener(_settingsChanged);
+    colorizer.removeListener(_colorizerChanged);
+    colorizer.onDone = null;
+    colorizer.clearQueue();
     _volume.setMethodCallHandler(null);
     _volume.invokeMethod('setEnabled', false);
     _volume.invokeMethod('setReading', false);
@@ -232,6 +292,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       _blank = await _renderOne(-1, page, style);
       await _renderWindow(generation, first: true);
       if (!mounted || generation != _generation) return;
+      await _startAutoColorize();
+      if (!mounted || generation != _generation) return;
       setState(() => _ready = true);
       _remember();
       if (settings.mode == TurnMode.scroll) _jumpScroll();
@@ -315,7 +377,39 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     } else {
       canvas.drawColor(s.paper, BlendMode.src);
     }
-    if (index >= 0) await _source!.paint(canvas, index, page, s);
+    if (index >= 0) {
+      await _source!.paint(canvas, index, page, s);
+      final images = await _source!.imagesOn(index, page);
+      _pageImages[index] = images;
+      for (final image in images) {
+        final file = colorizer.fileFor(image.id);
+        if (!file.existsSync()) continue;
+        // Same rectangle as the original, so colouring a picture can never move anything on the page.
+        final codec = await ui.instantiateImageCodec(await file.readAsBytes(), targetWidth: (image.rect.width * dpr).ceil());
+        final frame = await codec.getNextFrame();
+        codec.dispose();
+        final src = Rect.fromLTWH(0, 0, frame.image.width.toDouble(), frame.image.height.toDouble());
+        // Over paper the original is printed with multiply, so clear it and print the colour the same way.
+        final bg = _customBackground;
+        if (s.backgroundKey != null && bg != null) {
+          final toPx = bg.width / page.width;
+          canvas.drawImageRect(bg, Rect.fromLTRB(image.rect.left * toPx, image.rect.top * toPx, image.rect.right * toPx, image.rect.bottom * toPx), image.rect, Paint());
+        } else {
+          canvas.drawRect(image.rect, Paint()..color = s.paper);
+        }
+        await drawBookImage(
+          canvas,
+          frame.image,
+          src,
+          image.rect,
+          s,
+          Paint()
+            ..filterQuality = FilterQuality.medium
+            ..blendMode = s.darkPaper ? BlendMode.srcOver : BlendMode.multiply,
+        );
+        frame.image.dispose();
+      }
+    }
     _bakePaper(canvas, Offset.zero & page, s, index);
     final picture = recorder.endRecording();
     final image = await picture.toImage((page.width * dpr).ceil(), (page.height * dpr).ceil());
@@ -696,9 +790,39 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       return img == null ? const SizedBox.expand() : RawImage(image: img, fit: BoxFit.fill);
     }
 
+    Widget withBadges(int i) => Stack(fit: StackFit.expand, children: [one(i), ..._badges(i)]);
     return _spreadActive
-        ? Row(children: [Expanded(child: one(_page)), Expanded(child: one(_page + 1))])
-        : one(_page);
+        ? Row(children: [Expanded(child: withBadges(_page)), Expanded(child: withBadges(_page + 1))])
+        : withBadges(_page);
+  }
+
+  /// A small button on each picture that can still be coloured.
+  List<Widget> _badges(int index) {
+    if (settings.colorizeMode == ColorizeMode.off || !colorizer.modelReady) return const [];
+    final c = settings.palette;
+    return [
+      for (final image in _pageImages[index] ?? const <PageImage>[])
+        if (colorizer.stateOf(image.id) case final state when state != JobState.done && state != JobState.skipped)
+          Positioned(
+            top: image.rect.top + 6,
+            left: image.rect.right - 40,
+            child: GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                colorizer.enqueue(image, front: true, rest: false);
+              },
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(color: c.ink.withValues(alpha: 0.72), shape: BoxShape.circle),
+                alignment: Alignment.center,
+                child: state == JobState.running || state == JobState.waiting
+                    ? SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2, color: c.paper))
+                    : Icon(state == JobState.failed ? Icons.refresh : Icons.palette_outlined, color: c.paper, size: 18),
+              ),
+            ),
+          ),
+    ];
   }
 
   Widget _scrollView(Size page) {
