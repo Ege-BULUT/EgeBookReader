@@ -1,7 +1,10 @@
 package dev.egebulut.egebookreader
 
 import android.graphics.Rect
+import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
 import android.view.KeyEvent
@@ -14,9 +17,27 @@ class MainActivity : FlutterActivity() {
     private var reading = false
     private var channel: MethodChannel? = null
 
+    private fun updateSpeechService(args: Map<*, *>) {
+        val service = Intent(this, ReadingService::class.java)
+        if (args["active"] != true) {
+            stopService(service)
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 41)
+        }
+        service.putExtra(ReadingService.EXTRA_TITLE, args["title"] as String)
+        service.putExtra(ReadingService.EXTRA_PAUSED, args["paused"] as Boolean)
+        service.putExtra(ReadingService.EXTRA_LABELS, (args["labels"] as List<*>).map { it as String }.toTypedArray())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service) else startService(service)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "egebookreader/volume").also {
+            speechChannel = it
             it.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "setEnabled" -> {
@@ -32,6 +53,10 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "shouldRest" -> result.success(shouldRest())
+                    "speechService" -> {
+                        updateSpeechService(call.arguments as Map<*, *>)
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -79,5 +104,14 @@ class MainActivity : FlutterActivity() {
             channel?.invokeMethod("key", direction)
         }
         return true
+    }
+
+    companion object {
+        private var speechChannel: MethodChannel? = null
+
+        /** A button on the reading notification was pressed. */
+        fun sendSpeechAction(action: String) {
+            speechChannel?.invokeMethod("speechAction", action)
+        }
     }
 }

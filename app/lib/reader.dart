@@ -39,7 +39,7 @@ class _Ghost {
   final Map<int, ui.Image> keep;
 }
 
-class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMixin {
+class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
   late final _move = AnimationController(vsync: this, duration: const Duration(milliseconds: 440));
   late final _swing = AnimationController(vsync: this, duration: const Duration(milliseconds: 620));
   late final _reveal = AnimationController(vsync: this, duration: const Duration(milliseconds: 460));
@@ -90,6 +90,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     colorizer.addListener(_colorizerChanged);
     speaker.addListener(_speakerChanged);
     speaker.onFinished = _speechReachedPageEnd;
+    WidgetsBinding.instance.addObserver(this);
     _syncVolume();
     _volume.invokeMethod('setReading', true);
     _scroll.addListener(_onScroll);
@@ -128,7 +129,35 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   void _speakerChanged() {
     _syncVolume();
+    _syncSpeechService();
     if (mounted) setState(() {});
+  }
+
+  String? _serviceState;
+
+  /// While a book is read aloud a foreground service keeps the app alive with the screen off.
+  void _syncSpeechService() {
+    final state = speaker.active ? 'on-${speaker.paused}-$uiLanguage' : 'off';
+    if (state == _serviceState) return;
+    _serviceState = state;
+    _volume.invokeMethod('speechService', {
+      'active': speaker.active,
+      'title': widget.book.title,
+      'paused': speaker.paused,
+      'labels': [tr('Duraklat'), tr('Devam et'), tr('Durdur'), tr('Sesli okuma')],
+    });
+  }
+
+  bool get _onScreen => WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_ready) _renderWindow(_generation);
+    } else if (_speechTurning) {
+      // Animations stop when the screen does, and the voice is waiting for this page turn.
+      _curl.currentState?.skipToEnd();
+    }
   }
 
   Future<List<SpokenSentence>> _sentencesHere() async {
@@ -158,8 +187,10 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       _seek(_page + 1);
       _speechTurning = false;
       _speakFromHere();
+    } else if (_onScreen && _curl.currentState != null) {
+      _curl.currentState!.turn(1);
     } else {
-      _curl.currentState?.turn(1);
+      _onTurned(1);
     }
   }
 
@@ -239,6 +270,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     speaker.removeListener(_speakerChanged);
     speaker.onFinished = null;
     speaker.stop();
+    WidgetsBinding.instance.removeObserver(this);
+    _volume.invokeMethod('speechService', {'active': false});
     colorizer.onDone = null;
     colorizer.clearQueue();
     _volume.setMethodCallHandler(null);
@@ -272,6 +305,17 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   Future<dynamic> _onVolume(MethodCall call) async {
+    if (call.method == 'speechAction') {
+      switch (call.arguments as String) {
+        case 'pause':
+          speaker.pause();
+        case 'resume':
+          speaker.resume();
+        case 'stop':
+          speaker.stop();
+      }
+      return;
+    }
     if (call.method != 'key') return;
     var dir = call.arguments as int;
     if (settings.invertVolume) dir = -dir;
@@ -385,6 +429,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   Future<void> _renderWindow(int generation, {bool first = false}) async {
+    if (!_onScreen && !first) return; // no drawing with the screen off; it catches up on return
     final page = _pageSize!;
     final style = _style!;
     final near = <int>[

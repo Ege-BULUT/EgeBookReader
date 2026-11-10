@@ -156,6 +156,9 @@ const _en = <String, String>{
   'Sıfırla': 'Reset',
   'Bitti': 'Done',
   'Sığdır': 'Fit',
+  'Duraklat': 'Pause',
+  'Devam et': 'Resume',
+  'Durdur': 'Stop',
   // Setup screens
   'Dilini seç': 'Choose your language',
   'Telefonun dili': "Phone's language",

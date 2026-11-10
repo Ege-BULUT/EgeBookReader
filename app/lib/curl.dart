@@ -259,6 +259,19 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
     });
   }
 
+  /// Finishes a turn at once, for when the screen goes off and animations stop running.
+  void skipToEnd() {
+    if (_dir == 0) return;
+    final dir = _dir;
+    _anim.stop();
+    setState(() {
+      _dir = 0;
+      _pages = null;
+      _landing = false;
+    });
+    widget.onTurned(dir);
+  }
+
   /// Turns one page without a finger: tap zones and volume keys.
   void turn(int dir) {
     if (_dir != 0) return;

@@ -112,3 +112,8 @@ that names the old one.
 - First-run setup, English and Turkish interface (`app/lib/l10n.dart`, Turkish strings are the keys).
 - Manga sample from "Give My Regards to Black Jack" (SHUHO SATO) under its free secondary-use terms: title and author must stay visible, and the rights holder asks for an email report within a month of publication. The user has to send that.
 - The public APK is still debug-signed. Move to a real key before any store; that needs one uninstall on existing phones.
+
+## 2026-11-10 D13 Reading aloud with the screen off
+
+- A foreground service of type mediaPlayback (`ReadingService.kt`) with a partial wake lock keeps the process alive; speaking stays in Dart. Page turns skip the curl and page drawing waits while the screen is off. Asked for by the user.
+- Checked on the emulator with Supertonic: the service stayed in the foreground and reading moved on to the next chapter during 2.5 minutes asleep. Audio itself cannot be heard there; the system voice and the notification buttons were not exercised.

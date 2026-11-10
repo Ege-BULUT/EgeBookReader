@@ -143,6 +143,7 @@ DRM-protected books are not opened; the app says so. PDFs have a reflow switch, 
 ### Read aloud
 
 - The sentence being read is highlighted and the page turns by itself.
+- Keeps reading with the screen off or another app in front, with pause and stop in the notification.
 - The system voice is the default. Each downloadable voice lists its languages, license and source.
 - Any service with an OpenAI-style `/audio/speech` endpoint works with your own key.
 
@@ -197,7 +198,6 @@ memory/         requirements, research and the decisions behind the project
 - CB7 and DjVu do not open yet.
 - PDF reflow leaves pictures out.
 - Colours from any model are a guess: often good, sometimes wrong.
-- Reading aloud can stop if Android closes the app in the background.
 - A sentence that crosses two pages is read in two parts.
 - Release builds are signed with a development key, so moving to a store build will need one reinstall.
 
