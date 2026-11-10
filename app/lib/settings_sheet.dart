@@ -329,10 +329,59 @@ extension on _SettingsSheetState {
     );
   }
 
+  Widget _colorCard(ColorModel m) {
+    final s = settings;
+    final c = s.palette;
+    final installed = colorizer.isInstalled(m);
+    final selected = colorizer.model?.id == m.id;
+    final busy = colorizer.downloads.containsKey(m.id);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: selected ? c.accent : Colors.transparent, width: 1.4),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(m.name, style: TextStyle(color: c.ink, fontSize: 16, fontWeight: FontWeight.w500))),
+          Text(m.sizeText, style: TextStyle(color: c.muted, fontSize: 13)),
+        ]),
+        const SizedBox(height: 4),
+        Text('${m.description} Telefonda, internetsiz çalışır. Lisans: ${m.license}.', style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+        const SizedBox(height: 2),
+        SelectableText(m.source, style: TextStyle(color: c.muted, fontSize: 12)),
+        const SizedBox(height: 8),
+        if (busy)
+          LinearProgressIndicator(value: colorizer.downloads[m.id], minHeight: 3, color: c.accent, backgroundColor: c.line)
+        else if (!installed)
+          FilledButton(
+            onPressed: () => colorizer.downloadModel(m),
+            style: FilledButton.styleFrom(backgroundColor: c.accent, foregroundColor: c.paper),
+            child: const Text('İndir'),
+          )
+        else
+          Row(children: [
+            TextButton(
+              onPressed: () => s.update((x) => x.colorModelId = m.id),
+              style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero),
+              child: Text(selected ? 'Seçili' : 'Seç'),
+            ),
+            const SizedBox(width: 16),
+            TextButton(
+              onPressed: () => colorizer.removeModel(m),
+              style: TextButton.styleFrom(foregroundColor: c.muted, padding: EdgeInsets.zero),
+              child: const Text('Sil'),
+            ),
+          ]),
+      ]),
+    );
+  }
+
   List<Widget> _imageTab() {
     final s = settings;
     final c = s.palette;
-    final progress = colorizer.downloadProgress;
     return [
       Heading('Görsel filtreler'),
       _SettledSlider(label: 'Doygunluk', value: s.imageSaturation, min: 0, max: 2, percent: true, onEnd: (v) => s.update((x) => x.imageSaturation = v)),
@@ -340,36 +389,8 @@ extension on _SettingsSheetState {
       _SettledSlider(label: 'Keskinlik', value: s.imageSharpen, min: 0, max: 1, percent: true, onEnd: (v) => s.update((x) => x.imageSharpen = v)),
       Toggle('Yüksek kaliteli büyütme', s.imageUpscale, (v) => s.update((x) => x.imageUpscale = v)),
       Heading('Renklendirme'),
-      Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(6)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(colorModel.name, style: TextStyle(color: c.ink, fontSize: 16, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 4),
-          Text('Siyah beyaz görselleri telefonun içinde, internetsiz renklendirir. ${colorModel.sizeText}. Lisans: ${colorModel.license}.',
-              style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
-          const SizedBox(height: 4),
-          SelectableText(colorModel.source, style: TextStyle(color: c.muted, fontSize: 12)),
-          const SizedBox(height: 10),
-          if (progress != null)
-            LinearProgressIndicator(value: progress, minHeight: 3, color: c.accent, backgroundColor: c.line)
-          else if (colorizer.modelReady)
-            TextButton(
-              onPressed: colorizer.removeModel,
-              style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero),
-              child: const Text('Modeli sil'),
-            )
-          else
-            FilledButton(
-              onPressed: colorizer.downloadModel,
-              style: FilledButton.styleFrom(backgroundColor: c.accent, foregroundColor: c.paper),
-              child: const Text('Modeli indir'),
-            ),
-          if (colorizer.error != null)
-            Padding(padding: const EdgeInsets.only(top: 6), child: Text(colorizer.error!, style: TextStyle(color: c.accent, fontSize: 13))),
-        ]),
-      ),
-      const SizedBox(height: 14),
+      for (final m in colorModels) Padding(padding: const EdgeInsets.only(bottom: 10), child: _colorCard(m)),
+      if (colorizer.error != null) Text(colorizer.error!, style: TextStyle(color: c.accent, fontSize: 13)),
       Segmented<ColorizeMode>(
         value: s.colorizeMode,
         options: const {ColorizeMode.off: 'Kapalı', ColorizeMode.onDemand: 'Talep üzerine', ColorizeMode.auto: 'Otomatik'},

@@ -12,23 +12,62 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'main.dart' show settings;
 import 'onnx.dart';
 
 final colorizer = Colorizer();
 
 const _device = MethodChannel('egebookreader/volume');
 
+/// A colorizer that can be downloaded. Files come straight from their authors' own releases.
 class ColorModel {
-  const ColorModel();
-  String get name => 'DDColor';
-  String get sizeText => '206 MB indirme, 228 MB yer';
-  String get license => 'Apache-2.0';
-  String get source => 'https://github.com/piddnad/DDColor';
-  String get url =>
-      'https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/ddcolor/releases/v0.66.0/ddcolor-onnx-float.zip';
+  const ColorModel({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.sizeText,
+    required this.license,
+    required this.source,
+    required this.url,
+    required this.file,
+    required this.side,
+    required this.version,
+  });
+  final String id, name, description, sizeText, license, source, url, file, version;
+
+  /// The model works on a square of this many pixels.
+  final int side;
+
+  bool get isManga => id == 'manga';
+  bool get isZip => url.endsWith('.zip');
 }
 
-const colorModel = ColorModel();
+const colorModels = [
+  ColorModel(
+    id: 'manga',
+    name: 'Manga Light Colorizer',
+    description: 'Manga ve çizgi roman için eğitilmiş, en iyi sonuç bunda.',
+    sizeText: '191 MB',
+    license: 'CC BY-NC-SA 4.0, sharky172',
+    source: 'https://huggingface.co/sharky172/manga-light-colorizer',
+    url: 'https://huggingface.co/sharky172/manga-light-colorizer/resolve/main/models/v6_generator.onnx',
+    file: 'manga/v6_generator.onnx',
+    side: 512,
+    version: 'manga1',
+  ),
+  ColorModel(
+    id: 'ddcolor',
+    name: 'DDColor',
+    description: 'Fotoğraflar için eğitilmiş, siyah beyaz fotoğraflara uygun.',
+    sizeText: '206 MB indirme, 228 MB yer',
+    license: 'Apache-2.0',
+    source: 'https://github.com/piddnad/DDColor',
+    url: 'https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/ddcolor/releases/v0.66.0/ddcolor-onnx-float.zip',
+    file: 'ddcolor-onnx-float/ddcolor.onnx',
+    side: 256,
+    version: 'ddcolor3',
+  ),
+];
 
 enum JobState { none, waiting, running, done, skipped, failed }
 
@@ -53,9 +92,22 @@ String contentId(Uint8List b) {
 /// Colours one picture at a time, on a queue that rests between pictures so the phone stays cool.
 class Colorizer extends ChangeNotifier {
   late Directory _models, _out;
-  OnnxModel? _model;
-  double? downloadProgress;
+  OnnxModel? _session;
+  String? _sessionFor;
+
+  /// Downloads under way, by model id; a null value means the size is not known.
+  final downloads = <String, double?>{};
   String? error;
+
+  /// The model in use: the chosen one if it is installed, otherwise any that is.
+  ColorModel? get model {
+    final chosen = colorModels.where((m) => m.id == settings.colorModelId && isInstalled(m));
+    if (chosen.isNotEmpty) return chosen.first;
+    final any = colorModels.where(isInstalled);
+    return any.isEmpty ? null : any.first;
+  }
+
+  bool isInstalled(ColorModel m) => File(p.join(_models.path, m.file)).existsSync();
 
   final _queue = Queue<(PageImage, bool)>();
   final _state = <String, JobState>{};
@@ -72,8 +124,7 @@ class Colorizer extends ChangeNotifier {
   /// Runs after a picture is finished, so a reader can redraw the page that shows it.
   void Function(String id)? onDone;
 
-  File get _modelFile => File(p.join(_models.path, 'ddcolor-onnx-float', 'ddcolor.onnx'));
-  bool get modelReady => _modelFile.existsSync();
+  bool get modelReady => model != null;
 
   Future<void> load() async {
     final docs = await getApplicationDocumentsDirectory();
@@ -107,14 +158,14 @@ class Colorizer extends ChangeNotifier {
   }
 
   /// Raise the suffix when the model or the merge changes, so old results are made again.
-  File fileFor(String id) => File(p.join(_out.path, '$id-ddcolor3.png'));
+  File fileFor(String id) => File(p.join(_out.path, '$id-${model?.version ?? colorModels.first.version}.png'));
   bool hasResult(String id) => fileFor(id).existsSync();
 
   JobState stateOf(String id) => hasResult(id) ? JobState.done : (_state[id] ?? JobState.none);
 
   /// Ids of everything colorized so far, newest first: the app's gallery.
   List<String> gallery() {
-    const suffix = '-ddcolor3.png';
+    final suffix = '-${model?.version ?? colorModels.first.version}.png';
     final files = _out.listSync().whereType<File>().where((f) => f.path.endsWith(suffix)).toList();
     files.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
     return [
@@ -122,41 +173,52 @@ class Colorizer extends ChangeNotifier {
     ];
   }
 
-  Future<void> downloadModel() async {
-    if (downloadProgress != null) return;
+  Future<void> downloadModel(ColorModel m) async {
+    if (downloads.containsKey(m.id)) return;
     error = null;
-    downloadProgress = 0;
+    downloads[m.id] = 0;
     notifyListeners();
-    final zip = File(p.join(_models.path, 'ddcolor.zip'));
+    final target = File(p.join(_models.path, m.file));
+    final temp = File('${target.path}.part');
     try {
-      await zip.create(recursive: true);
+      await temp.create(recursive: true);
       final client = HttpClient();
-      final response = await (await client.getUrl(Uri.parse(colorModel.url))).close();
+      final response = await (await client.getUrl(Uri.parse(m.url))).close();
       if (response.statusCode != 200) throw HttpException('HTTP ${response.statusCode}');
-      final sink = zip.openWrite();
+      final sink = temp.openWrite();
       var got = 0;
       await for (final chunk in response) {
         sink.add(chunk);
         got += chunk.length;
-        downloadProgress = response.contentLength > 0 ? got / response.contentLength : null;
+        downloads[m.id] = response.contentLength > 0 ? got / response.contentLength : null;
         notifyListeners();
       }
       await sink.close();
       client.close();
-      await Isolate.run(() => extractFileToDisk(zip.path, p.dirname(zip.path)));
-    } catch (_) {
+      if (m.isZip) {
+        final to = _models.path, from = temp.path;
+        await Isolate.run(() async {
+          final zip = ZipDecoder().decodeStream(InputFileStream(from));
+          await extractArchiveToDisk(zip, to);
+        });
+      } else {
+        await temp.rename(target.path);
+      }
+    } catch (e) {
+      debugPrint('model download failed: $e');
       error = 'Model indirilemedi. Bağlantını ve boş alanı kontrol et.';
     }
-    if (zip.existsSync()) await zip.delete();
-    downloadProgress = null;
+    if (temp.existsSync()) await temp.delete();
+    downloads.remove(m.id);
     notifyListeners();
   }
 
-  Future<void> removeModel() async {
-    _model?.close();
-    _model = null;
-    final dir = Directory(p.join(_models.path, 'ddcolor-onnx-float'));
-    if (dir.existsSync()) await dir.delete(recursive: true);
+  Future<void> removeModel(ColorModel m) async {
+    _session?.close();
+    _session = null;
+    _sessionFor = null;
+    final file = File(p.join(_models.path, m.file));
+    if (file.parent.existsSync()) await file.parent.delete(recursive: true);
     notifyListeners();
   }
 
@@ -244,13 +306,35 @@ class Colorizer extends ChangeNotifier {
     final data = (await sized.toByteData())!.buffer.asUint8List();
     sized.dispose();
 
-    final prepared = await Isolate.run(() => prepareColorInput(data, w, h));
+    final current = model!;
+    final side = current.side, manga = current.isManga;
+    final prepared = await Isolate.run(() => prepareColorInput(data, w, h, side));
     if (prepared == null) return false;
 
-    final model = _model ??= await OnnxModel.open(_modelFile.path);
-    final ab = await model.run(prepared.input, const [1, 3, _side, _side]);
+    if (_sessionFor != current.id) {
+      _session?.close();
+      _session = await OnnxModel.open(p.join(_models.path, current.file));
+      _sessionFor = current.id;
+    }
+    final Float32List output;
+    if (manga) {
+      // Its optional SAM guide is left at zero: the generator alone gives near-identical pages, without 109 MB more.
+      final luma = Float32List(side * side);
+      for (var i = 0; i < luma.length; i++) {
+        luma[i] = prepared.input[i] * 2 - 1;
+      }
+      output = await _session!.run([
+        OnnxInput('L_bw', luma, [1, 1, side, side]),
+        OnnxInput('sam_level0', Float32List(256 * (side ~/ 16) * (side ~/ 16)), [1, 256, side ~/ 16, side ~/ 16]),
+        OnnxInput('sam_level1', Float32List(256 * (side ~/ 32) * (side ~/ 32)), [1, 256, side ~/ 32, side ~/ 32]),
+        OnnxInput('wd14_embedding', Float32List(1024), const [1, 1024]),
+      ], 'rgb_pred', 3 * side * side);
+    } else {
+      output = await _session!.run([OnnxInput('image', prepared.input, [1, 3, side, side])], 'output', 2 * side * side);
+    }
+    final ab = manga ? await Isolate.run(() => rgbToAb(output, side)) : output;
 
-    final rgba = await Isolate.run(() => mergeColor(prepared, ab, w, h));
+    final rgba = await Isolate.run(() => mergeColor(prepared, ab, w, h, protectWhites: !manga));
     final buffer = await ui.ImmutableBuffer.fromUint8List(rgba);
     final descriptor = ui.ImageDescriptor.raw(buffer, width: w, height: h, pixelFormat: ui.PixelFormat.rgba8888);
     final imageCodec = await descriptor.instantiateCodec();
@@ -265,10 +349,9 @@ class Colorizer extends ChangeNotifier {
   }
 }
 
-const _side = 256;
-
 class Prepared {
-  Prepared(this.input, this.lightness, this.blurred);
+  Prepared(this.input, this.lightness, this.blurred, this.side);
+  final int side;
   final Float32List input;
   final Float32List lightness;
 
@@ -281,10 +364,28 @@ double _linearToSrgb(double c) => c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1 
 double _f(double t) => t > 0.008856 ? pow(t, 1 / 3).toDouble() : 7.787 * t + 16 / 116;
 double _fInv(double t) => t > 0.206893 ? t * t * t : (t - 16 / 116) / 7.787;
 
+/// Turns a model's RGB output (-1 to 1) into the a and b channels the merge takes, so the original lightness can stay.
+@visibleForTesting
+Float32List rgbToAb(Float32List rgb, int side) {
+  final count = side * side;
+  final out = Float32List(count * 2);
+  for (var n = 0; n < count; n++) {
+    final r = _srgbToLinear(((rgb[n] + 1) / 2).clamp(0.0, 1.0));
+    final g = _srgbToLinear(((rgb[count + n] + 1) / 2).clamp(0.0, 1.0));
+    final b = _srgbToLinear(((rgb[2 * count + n] + 1) / 2).clamp(0.0, 1.0));
+    final x = _f((0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047);
+    final y = _f(0.2126729 * r + 0.7151522 * g + 0.0721750 * b);
+    final z = _f((0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / 1.08883);
+    out[n] = 500 * (x - y);
+    out[count + n] = 200 * (y - z);
+  }
+  return out;
+}
+
 /// Lightness of every pixel, and the model's input: that lightness alone, shrunk and turned back to RGB.
 /// Null if the picture already has colour.
 @visibleForTesting
-Prepared? prepareColorInput(Uint8List rgba, int w, int h) {
+Prepared? prepareColorInput(Uint8List rgba, int w, int h, int side) {
   final lightness = Float32List(w * h);
   var chroma = 0.0;
   final toLinear = Float64List(256);
@@ -299,12 +400,12 @@ Prepared? prepareColorInput(Uint8List rgba, int w, int h) {
   }
   if (chroma / (w * h) > 14) return null;
 
-  final input = Float32List(3 * _side * _side);
-  final small = Float32List(_side * _side);
-  for (var y = 0; y < _side; y++) {
-    final y0 = y * h ~/ _side, y1 = max(y0 + 1, (y + 1) * h ~/ _side);
-    for (var x = 0; x < _side; x++) {
-      final x0 = x * w ~/ _side, x1 = max(x0 + 1, (x + 1) * w ~/ _side);
+  final input = Float32List(3 * side * side);
+  final small = Float32List(side * side);
+  for (var y = 0; y < side; y++) {
+    final y0 = y * h ~/ side, y1 = max(y0 + 1, (y + 1) * h ~/ side);
+    for (var x = 0; x < side; x++) {
+      final x0 = x * w ~/ side, x1 = max(x0 + 1, (x + 1) * w ~/ side);
       var sum = 0.0;
       var count = 0;
       for (var yy = y0; yy < y1; yy += max(1, (y1 - y0) ~/ 4)) {
@@ -313,7 +414,7 @@ Prepared? prepareColorInput(Uint8List rgba, int w, int h) {
           count++;
         }
       }
-      small[y * _side + x] = sum / count;
+      small[y * side + x] = sum / count;
     }
   }
   for (var n = 0; n < small.length; n++) {
@@ -323,23 +424,24 @@ Prepared? prepareColorInput(Uint8List rgba, int w, int h) {
     input[small.length + n] = v;
     input[2 * small.length + n] = v;
   }
-  return Prepared(input, lightness, small);
+  return Prepared(input, lightness, small, side);
 }
 
 /// Lines and screentones stay exactly where they are, because only colour is added around the original lightness.
 @visibleForTesting
-Uint8List mergeColor(Prepared prepared, Float32List ab, int w, int h) {
+Uint8List mergeColor(Prepared prepared, Float32List ab, int w, int h, {bool protectWhites = true}) {
   final lightness = prepared.lightness;
+  final side = prepared.side;
   final out = Uint8List(w * h * 4);
-  final aChannel = ab.buffer.asFloat32List(ab.offsetInBytes, _side * _side);
-  final bChannel = ab.buffer.asFloat32List(ab.offsetInBytes + _side * _side * 4, _side * _side);
+  final aChannel = ab.buffer.asFloat32List(ab.offsetInBytes, side * side);
+  final bChannel = ab.buffer.asFloat32List(ab.offsetInBytes + side * side * 4, side * side);
 
   double sample(Float32List c, double x, double y) {
-    final x0 = x.floor().clamp(0, _side - 1), y0 = y.floor().clamp(0, _side - 1);
-    final x1 = min(x0 + 1, _side - 1), y1 = min(y0 + 1, _side - 1);
+    final x0 = x.floor().clamp(0, side - 1), y0 = y.floor().clamp(0, side - 1);
+    final x1 = min(x0 + 1, side - 1), y1 = min(y0 + 1, side - 1);
     final fx = (x - x0).clamp(0.0, 1.0), fy = (y - y0).clamp(0.0, 1.0);
-    final top = c[y0 * _side + x0] * (1 - fx) + c[y0 * _side + x1] * fx;
-    final bottom = c[y1 * _side + x0] * (1 - fx) + c[y1 * _side + x1] * fx;
+    final top = c[y0 * side + x0] * (1 - fx) + c[y0 * side + x1] * fx;
+    final bottom = c[y1 * side + x0] * (1 - fx) + c[y1 * side + x1] * fx;
     return top * (1 - fy) + bottom * fy;
   }
 
@@ -356,12 +458,12 @@ Uint8List mergeColor(Prepared prepared, Float32List ab, int w, int h) {
   // Everything that varies slowly is worked out once on the model's grid.
   // Paper, speech bubbles and solid blacks keep no colour. Judged on the blurred lightness: a screentone is
   // only black and white dots, yet it is a mid grey to the eye and should take colour like one.
-  final count = _side * _side;
+  final count = side * side;
   final keptA = Float32List(count), keptB = Float32List(count);
   final tintR = Float32List(count), tintG = Float32List(count), tintB = Float32List(count);
   for (var n = 0; n < count; n++) {
     final seen = prepared.blurred[n];
-    final keep = ((97 - seen) / 12).clamp(0.0, 1.0) * ((seen - 4) / 10).clamp(0.0, 1.0);
+    final keep = protectWhites ? ((97 - seen) / 12).clamp(0.0, 1.0) * ((seen - 4) / 10).clamp(0.0, 1.0) : 1.0;
     final a = aChannel[n] * keep, b = bChannel[n] * keep;
     keptA[n] = a;
     keptB[n] = b;
@@ -380,9 +482,9 @@ Uint8List mergeColor(Prepared prepared, Float32List ab, int w, int h) {
   int byte(double v) => (v * 255).round().clamp(0, 255);
 
   for (var y = 0, i = 0, n = 0; y < h; y++) {
-    final sy = (y + 0.5) * _side / h - 0.5;
+    final sy = (y + 0.5) * side / h - 0.5;
     for (var x = 0; x < w; x++, i += 4, n++) {
-      final sx = (x + 0.5) * _side / w - 0.5;
+      final sx = (x + 0.5) * side / w - 0.5;
       final l = lightness[n];
       final grey = greyOf[(l * 10).round().clamp(0, 1000)];
       // Far from its surroundings a pixel is a dot or a line: tint it like ink on coloured paper, because

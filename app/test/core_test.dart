@@ -111,7 +111,7 @@ void main() {
       gray[i] = gray[i + 1] = gray[i + 2] = v;
       gray[i + 3] = 255;
     }
-    final prepared = prepareColorInput(gray, w, h)!;
+    final prepared = prepareColorInput(gray, w, h, 256)!;
     expect(prepared.input.length, 3 * 256 * 256);
 
     // With no colour added, the merge must give back the picture it was given.
@@ -131,7 +131,7 @@ void main() {
       red[i] = 200;
       red[i + 3] = 255;
     }
-    expect(prepareColorInput(red, 4, 4), isNull);
+    expect(prepareColorInput(red, 4, 4, 256), isNull);
   });
 
   testWidgets('a page is split into sentences that know where they are', (tester) async {
@@ -150,6 +150,17 @@ void main() {
       expect(sentences.every((s) => s.boxes.isNotEmpty), isTrue);
       expect(sentences.first.boxes.first.top, greaterThanOrEqualTo(26));
     });
+  });
+
+  test('RGB model output becomes the a and b the merge expects', () {
+    final grey = rgbToAb(Float32List(3 * 4), 2); // 0 is mid grey in -1..1
+    expect(grey.every((v) => v.abs() < 0.01), isTrue);
+    final red = Float32List(3 * 4);
+    red.fillRange(0, 4, 1);
+    red.fillRange(4, 12, -1);
+    final ab = rgbToAb(red, 2);
+    expect(ab[0], closeTo(80, 2)); // CIELAB a of pure red
+    expect(ab[4], closeTo(67, 2)); // CIELAB b of pure red
   });
 
   group('page gestures', () {

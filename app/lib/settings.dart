@@ -169,6 +169,7 @@ class Settings extends ChangeNotifier {
   bool imageUpscale = false;
   ColorizeMode colorizeMode = ColorizeMode.onDemand;
   int autoColorizePages = 3;
+  String colorModelId = 'manga';
   bool ttsEnabled = true;
   VoiceSource voiceSource = VoiceSource.system;
   String? ttsModelId;
@@ -250,6 +251,7 @@ class Settings extends ChangeNotifier {
       imageUpscale = j['imageUpscale'] as bool? ?? false;
       colorizeMode = ColorizeMode.values.byName(j['colorizeMode'] as String? ?? 'onDemand');
       autoColorizePages = j['autoColorizePages'] as int? ?? 3;
+      colorModelId = j['colorModelId'] as String? ?? 'manga';
       ttsEnabled = j['ttsEnabled'] as bool? ?? true;
       voiceSource = VoiceSource.values.byName(j['voiceSource'] as String? ?? 'system');
       ttsModelId = j['ttsModelId'] as String?;
@@ -295,6 +297,7 @@ class Settings extends ChangeNotifier {
       'imageUpscale': imageUpscale,
       'colorizeMode': colorizeMode.name,
       'autoColorizePages': autoColorizePages,
+      'colorModelId': colorModelId,
       'ttsEnabled': ttsEnabled,
       'voiceSource': voiceSource.name,
       'ttsModelId': ttsModelId,

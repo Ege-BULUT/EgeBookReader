@@ -44,3 +44,7 @@ Tried Qualcomm's official DDColor ONNX (Apache-2.0, 215 MB float, input 256², 0
 page against the original colours. It gives plausible warm colours but they differ from the real ones, it bleeds strong colour into
 bright areas and treats a three-panel page as one picture. Good enough to ship as an optional download; whites get protected
 in post-processing. Real manga screentone pages are still untested.
+
+### Q4 update 2, 2026-11-10
+
+Settled for comics by D10. Importing one's own model is not built: each model has its own inputs and outputs, so it would need a per-model adapter.

@@ -17,10 +17,19 @@ final class _ApiBase extends Struct {
 
 typedef _P = Pointer<Void>;
 
-class _Job {
-  _Job(this.input, this.shape, this.reply);
-  final Float32List input;
+/// A named input tensor.
+class OnnxInput {
+  OnnxInput(this.name, this.data, this.shape);
+  final String name;
+  final Float32List data;
   final List<int> shape;
+}
+
+class _Job {
+  _Job(this.inputs, this.output, this.outputLength, this.reply);
+  final List<OnnxInput> inputs;
+  final String output;
+  final int outputLength;
   final SendPort reply;
 }
 
@@ -58,33 +67,46 @@ void _main((String, SendPort) start) {
   final tensorData = fn<_P Function(_P, Pointer<_P>)>(_tensorData).asFunction<_P Function(_P, Pointer<_P>)>();
   final releaseValue = fn<Void Function(_P)>(_releaseValue).asFunction<void Function(_P)>();
 
-  final inName = calloc<Pointer<Utf8>>()..value = 'image'.toNativeUtf8();
-  final outName = calloc<Pointer<Utf8>>()..value = 'output'.toNativeUtf8();
-
   final jobs = ReceivePort();
   ready.send(jobs.sendPort);
   jobs.listen((message) {
     final job = message as _Job;
-    final data = calloc<Float>(job.input.length);
-    final shape = calloc<Int64>(job.shape.length);
-    final tensor = calloc<_P>(), result = calloc<_P>(), pointer = calloc<_P>();
+    final n = job.inputs.length;
+    final names = calloc<Pointer<Utf8>>(n);
+    final tensors = calloc<_P>(n);
+    final outName = calloc<Pointer<Utf8>>()..value = job.output.toNativeUtf8();
+    final result = calloc<_P>(), pointer = calloc<_P>();
+    final buffers = <Pointer<Float>>[];
+    final shapes = <Pointer<Int64>>[];
     try {
-      data.asTypedList(job.input.length).setAll(0, job.input);
-      for (var i = 0; i < job.shape.length; i++) {
-        shape[i] = job.shape[i];
+      for (var i = 0; i < n; i++) {
+        final input = job.inputs[i];
+        names[i] = input.name.toNativeUtf8();
+        final data = calloc<Float>(input.data.length);
+        buffers.add(data);
+        data.asTypedList(input.data.length).setAll(0, input.data);
+        final shape = calloc<Int64>(input.shape.length);
+        shapes.add(shape);
+        for (var d = 0; d < input.shape.length; d++) {
+          shape[d] = input.shape[d];
+        }
+        check(createTensor(memory, data.cast(), input.data.length * 4, shape, input.shape.length, 1, tensors + i));
       }
-      check(createTensor(memory, data.cast(), job.input.length * 4, shape, job.shape.length, 1, tensor));
-      check(run(session, nullptr, inName, tensor, 1, outName, 1, result));
+      check(run(session, nullptr, names, tensors, n, outName, 1, result));
       check(tensorData(result.value, pointer));
-      job.reply.send(Float32List.fromList(pointer.value.cast<Float>().asTypedList(2 * 256 * 256)));
+      job.reply.send(Float32List.fromList(pointer.value.cast<Float>().asTypedList(job.outputLength)));
       releaseValue(result.value);
-      releaseValue(tensor.value);
     } catch (e) {
       job.reply.send('$e');
     } finally {
-      calloc.free(data);
-      calloc.free(shape);
-      calloc.free(tensor);
+      for (var i = 0; i < buffers.length; i++) {
+        if (tensors[i] != nullptr) releaseValue(tensors[i]);
+        calloc.free(buffers[i]);
+        calloc.free(shapes[i]);
+      }
+      calloc.free(names);
+      calloc.free(tensors);
+      calloc.free(outName);
       calloc.free(result);
       calloc.free(pointer);
     }
@@ -103,9 +125,9 @@ class OnnxModel {
     return OnnxModel._(isolate, await ready.first as SendPort);
   }
 
-  Future<Float32List> run(Float32List input, List<int> shape) async {
+  Future<Float32List> run(List<OnnxInput> inputs, String output, int outputLength) async {
     final reply = ReceivePort();
-    _jobs.send(_Job(input, shape, reply.sendPort));
+    _jobs.send(_Job(inputs, output, outputLength, reply.sendPort));
     final result = await reply.first;
     reply.close();
     if (result is String) throw StateError(result);

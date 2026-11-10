@@ -625,8 +625,11 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   void _onTap(Offset at, Size size) {
     if (_menu) return _toggleMenu();
-    if (_openPictureAt(at, size)) return;
-    switch (settings.zones.actionAt(at, size)) {
+    final action = settings.zones.actionAt(at, size);
+    // In Tap mode the side zones are how pages turn, so they keep working over pictures.
+    final zoneTurns = settings.mode == TurnMode.tap && (action == ZoneAction.prev || action == ZoneAction.next);
+    if (!zoneTurns && _openPictureAt(at, size)) return;
+    switch (action) {
       case ZoneAction.prev:
         _curl.currentState?.turn(-1);
       case ZoneAction.next:

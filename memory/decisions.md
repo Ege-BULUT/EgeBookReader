@@ -92,3 +92,12 @@ that names the old one.
 - The system splash is now empty paper; the logo builds itself in Flutter (`_LogoPainter`).
 - Added unasked: contents and bookmarks sheet, screen stays on while reading.
 - Known limits: speech stops if Android kills the app in the background (no foreground service yet); a sentence crossing two pages is read as two.
+
+## 2026-11-10 D10 Manga Light Colorizer becomes the default colorizer
+
+- The user pointed out the app will stay free and open source, so a non-commercial licence is acceptable. Manga Light Colorizer v6 (sharky172, CC BY-NC-SA 4.0) is offered as a download from
+  its author's repository, with the licence on its card. Nothing is re-hosted. If the app is ever monetized this model must go.
+- Tried on real pages: the generator alone (no SAM encoder, which saves 109 MB) gives results near the author's own samples, far better than DDColor on comics. 1.1 s on a Mac CPU; about 9 s on the emulator including model load.
+- Only its colour is used, merged over the original lightness, so lines and text stay sharp.
+- DDColor stays as the option for photographs.
+- manga-colorization-v2 has no licence, so all rights are reserved even though it looks abandoned: not distributed.
