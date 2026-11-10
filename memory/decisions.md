@@ -101,3 +101,7 @@ that names the old one.
 - Only its colour is used, merged over the original lightness, so lines and text stay sharp.
 - DDColor stays as the option for photographs.
 - manga-colorization-v2 has no licence, so all rights are reserved even though it looks abandoned: not distributed.
+
+## 2026-11-10 D11 License
+
+- GNU AGPL-3.0, chosen by the user after a comparison with GPL-3.0, MIT and Apache-2.0. It leaves room for MuPDF and DjVuLibre later. Any hosted web build must offer its source. The iOS App Store remains a risk (`research/formats.md` §1.1).

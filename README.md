@@ -29,4 +29,8 @@ Models are fetched from their authors on request and are not part of this reposi
 
 The sample book in `app/assets/samples/colorize.epub` uses a page of [Pepper&Carrot](https://www.peppercarrot.com) by David Revoy (CC BY 4.0), converted to grayscale.
 
-`memory/` holds the requirements, research and decisions behind the project.
+`memory/` holds the requirements, research and decisions behind the project. See [ROADMAP.md](ROADMAP.md) for what comes next.
+
+## License
+
+GNU Affero General Public License v3.0. See [LICENSE](LICENSE).

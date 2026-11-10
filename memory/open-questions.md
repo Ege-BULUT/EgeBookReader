@@ -2,7 +2,7 @@
 
 What still needs the user's call. Each has a recommendation; once answered it moves to `decisions.md`.
 
-## Q1 App license: permissive or AGPL/GPL?
+## Q1 App license (decided: AGPL-3.0, see D11)
 
 Several of the best components are copyleft: MuPDF (AGPL, the strongest PDF reflow), piper-phonemize (GPL-3.0, the
 text front end for Piper-style voices), DjVuLibre (GPL-2.0+). The UnRAR license is incompatible with GPL/AGPL.

@@ -2,7 +2,7 @@
   "_meta": {
     "description": "Roadmap data. Edit via scripts/roadmap_cli.py, not by hand. Run its `render` command afterward to update roadmap.html. Fully local, nothing here is ever pushed anywhere.",
     "milestoneIdPrefix": "M",
-    "nextMilestoneSeq": 12
+    "nextMilestoneSeq": 14
   },
   "intro": "The plan, sequenced.",
   "milestones": [
@@ -125,6 +125,28 @@
       "examples": [],
       "chips": [
         "R0.2 R0.3"
+      ]
+    },
+    {
+      "id": "M12",
+      "name": "Interface languages",
+      "status": "planned",
+      "description": "English and Turkish ship first. Then Russian, Arabic, Chinese, Japanese, Korean, German, French, Hindi.",
+      "why": "Asked for by the user on 2026-11-10.",
+      "examples": [],
+      "chips": [
+        "i18n"
+      ]
+    },
+    {
+      "id": "M13",
+      "name": "Manga and manhwa",
+      "status": "planned",
+      "description": "Right-to-left reading, webtoon strip mode, panel navigation.",
+      "why": "Asked for by the user on 2026-11-10.",
+      "examples": [],
+      "chips": [
+        "comics"
       ]
     }
   ],
