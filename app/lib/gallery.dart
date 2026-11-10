@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'colorize.dart';
+import 'l10n.dart';
 import 'main.dart' show settings;
 import 'viewer.dart';
 
@@ -29,13 +30,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
             foregroundColor: c.ink,
             elevation: 0,
             scrolledUnderElevation: 0,
-            title: Text('Galeri', style: TextStyle(fontFamily: 'serif', fontSize: 22, color: c.ink)),
+            title: Text(tr('Galeri'), style: TextStyle(fontFamily: 'serif', fontSize: 22, color: c.ink)),
           ),
           body: ids.isEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(40),
-                    child: Text('Renklendirilen görseller burada toplanır.', textAlign: TextAlign.center, style: TextStyle(color: c.muted, fontSize: 15)),
+                    child: Text(tr('Renklendirilen görseller burada toplanır.'), textAlign: TextAlign.center, style: TextStyle(color: c.muted, fontSize: 15)),
                   ),
                 )
               : GridView.builder(
@@ -52,7 +53,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   void _open(List<String> ids, int i) {
     final items = [
       for (final id in ids)
-        ViewerItem(id: id, caption: colorizer.captionOf(id), original: () => colorizer.originalBytes(id)),
+        ViewerItem(id: id, title: colorizer.titleOf(id), pageNumber: colorizer.pageOf(id), original: () => colorizer.originalBytes(id)),
     ];
     Navigator.of(context).push(PageRouteBuilder<void>(
       opaque: false,

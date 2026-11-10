@@ -8,8 +8,10 @@ import 'package:path/path.dart' as p;
 
 import 'colorize.dart';
 import 'fonts.dart';
+import 'l10n.dart';
 import 'main.dart' show settings, themeFor;
 import 'motion.dart';
+import 'onboarding.dart';
 import 'settings.dart';
 import 'tts.dart';
 import 'zones.dart';
@@ -81,7 +83,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
       Heading('Tema'),
       Row(children: [
         for (final t in PaperTheme.values) ...[
-          Expanded(child: _ThemeSwatch(theme: t)),
+          Expanded(child: ThemeSwatch(theme: t)),
           if (t != PaperTheme.values.last) const SizedBox(width: 8),
         ],
       ]),
@@ -101,7 +103,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
             child: OutlinedButton(
               onPressed: _pickBackground,
               style: OutlinedButton.styleFrom(foregroundColor: c.ink, side: BorderSide(color: c.line)),
-              child: Text(custom.image == null ? 'Resim seç' : 'Resmi değiştir'),
+              child: Text(tr(custom.image == null ? 'Resim seç' : 'Resmi değiştir')),
             ),
           ),
           if (custom.image != null) ...[
@@ -109,7 +111,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
             TextButton(
               onPressed: () => s.updateCustom((x) => x.image = null),
               style: TextButton.styleFrom(foregroundColor: c.accent),
-              child: const Text('Kaldır'),
+              child: Text(tr('Kaldır')),
             ),
           ],
         ]),
@@ -122,14 +124,20 @@ class _SettingsSheetState extends State<SettingsSheet> {
         if (custom.scrim > 0)
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text('Yazı okunsun diye arka plan biraz yumuşatıldı.', style: TextStyle(color: c.muted, fontSize: 13)),
+            child: Text(tr('Yazı okunsun diye arka plan biraz yumuşatıldı.'), style: TextStyle(color: c.muted, fontSize: 13)),
           ),
       ],
       Heading('Gerçek kitap'),
       Toggle(
-        s.isEink ? 'Gerçek kitap modu (E-ink\'te kapalı)' : 'Gerçek kitap modu',
+        s.isEink ? "Gerçek kitap modu (E-ink'te kapalı)" : 'Gerçek kitap modu',
         s.actualBook,
         (v) => s.update((x) => x.actualBook = v),
+      ),
+      const SizedBox(height: 18),
+      TextButton(
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const OnboardingScreen(again: true))),
+        style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero, alignment: Alignment.centerLeft),
+        child: Text(tr('Kurulum rehberini aç')),
       ),
     ];
   }
@@ -208,7 +216,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
         OutlinedButton(
           onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ZoneEditor())),
           style: OutlinedButton.styleFrom(foregroundColor: c.ink, side: BorderSide(color: c.line)),
-          child: const Text('Dokunma alanlarını düzenle'),
+          child: Text(tr('Dokunma alanlarını düzenle')),
         ),
       ],
       Toggle('Ses tuşlarıyla çevir', s.volumeKeys, (v) => s.update((x) => x.volumeKeys = v)),
@@ -234,7 +242,7 @@ extension on _SettingsSheetState {
       if (s.voiceSource == VoiceSource.system)
         Padding(
           padding: const EdgeInsets.only(top: 14),
-          child: Text('Telefonun kendi ses motoru kullanılır. Kitabın diline göre ses seçilir.', style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+          child: Text(tr('Telefonun kendi ses motoru kullanılır. Kitabın diline göre ses seçilir.'), style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
         ),
       if (s.voiceSource == VoiceSource.model) ...[
         Heading('Telefona kurulan sesler'),
@@ -243,7 +251,7 @@ extension on _SettingsSheetState {
       ],
       if (s.voiceSource == VoiceSource.api) ...[
         Heading('API anahtarı'),
-        Text('OpenAI uyumlu /audio/speech ucu olan her servis çalışır. Metin bu servise gönderilir. Anahtar sadece bu telefonda saklanır.',
+        Text(tr('OpenAI uyumlu /audio/speech ucu olan her servis çalışır. Metin bu servise gönderilir. Anahtar sadece bu telefonda saklanır.'),
             style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
         const SizedBox(height: 10),
         _field('Adres', s.apiBase, 'https://…/v1', (v) => s.update((x) => x.apiBase = v)),
@@ -266,7 +274,7 @@ extension on _SettingsSheetState {
         enableSuggestions: false,
         onChanged: onChanged,
         style: TextStyle(color: c.ink, fontSize: 15),
-        decoration: InputDecoration(labelText: label, hintText: hint, isDense: true, labelStyle: TextStyle(color: c.muted), hintStyle: TextStyle(color: c.muted)),
+        decoration: InputDecoration(labelText: tr(label), hintText: hint, isDense: true, labelStyle: TextStyle(color: c.muted), hintStyle: TextStyle(color: c.muted)),
       ),
     );
   }
@@ -291,9 +299,9 @@ extension on _SettingsSheetState {
           Text(m.size, style: TextStyle(color: c.muted, fontSize: 13)),
         ]),
         const SizedBox(height: 6),
-        Text('Diller: ${m.languages.map((l) => languageNames[l] ?? l).join(', ')}', style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+        Text('${tr('Diller')}: ${m.languages.map((l) => tr(languageNames[l] ?? l)).join(', ')}', style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
         const SizedBox(height: 4),
-        Text('${m.voiceCount} ses. Lisans: ${m.license}.', style: TextStyle(color: c.muted, fontSize: 13)),
+        Text('${m.voiceCount} ${tr('ses')}. ${tr('Lisans')}: ${tr(m.license)}.', style: TextStyle(color: c.muted, fontSize: 13)),
         const SizedBox(height: 2),
         SelectableText(m.source, style: TextStyle(color: c.muted, fontSize: 12)),
         const SizedBox(height: 8),
@@ -303,25 +311,25 @@ extension on _SettingsSheetState {
           FilledButton(
             onPressed: () => voices.download(m),
             style: FilledButton.styleFrom(backgroundColor: c.accent, foregroundColor: c.paper),
-            child: const Text('İndir'),
+            child: Text(tr('İndir')),
           )
         else
           Row(children: [
             TextButton(
               onPressed: () => s.update((x) => x.ttsModelId = m.id),
               style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero),
-              child: Text(selected ? 'Seçili' : 'Seç'),
+              child: Text(tr(selected ? 'Seçili' : 'Seç')),
             ),
             const SizedBox(width: 16),
             TextButton(
               onPressed: () => voices.remove(m),
               style: TextButton.styleFrom(foregroundColor: c.muted, padding: EdgeInsets.zero),
-              child: const Text('Sil'),
+              child: Text(tr('Sil')),
             ),
             const Spacer(),
             if (selected) ...[
               _Step(icon: Icons.remove, onTap: () => s.update((x) => x.ttsVoice = max(0, x.ttsVoice - 1))),
-              Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text('Ses ${s.ttsVoice + 1}', style: TextStyle(color: c.ink, fontSize: 14))),
+              Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text('${tr('Ses')} ${s.ttsVoice + 1}', style: TextStyle(color: c.ink, fontSize: 14))),
               _Step(icon: Icons.add, onTap: () => s.update((x) => x.ttsVoice = min(m.voiceCount - 1, x.ttsVoice + 1))),
             ],
           ]),
@@ -329,7 +337,48 @@ extension on _SettingsSheetState {
     );
   }
 
-  Widget _colorCard(ColorModel m) {
+  List<Widget> _imageTab() {
+    final s = settings;
+    final c = s.palette;
+    return [
+      Heading('Görsel filtreler'),
+      _SettledSlider(label: 'Doygunluk', value: s.imageSaturation, min: 0, max: 2, percent: true, onEnd: (v) => s.update((x) => x.imageSaturation = v)),
+      _SettledSlider(label: 'Kontrast', value: s.imageContrast, min: 0.6, max: 1.6, percent: true, onEnd: (v) => s.update((x) => x.imageContrast = v)),
+      _SettledSlider(label: 'Keskinlik', value: s.imageSharpen, min: 0, max: 1, percent: true, onEnd: (v) => s.update((x) => x.imageSharpen = v)),
+      Toggle('Yüksek kaliteli büyütme', s.imageUpscale, (v) => s.update((x) => x.imageUpscale = v)),
+      Heading('Renklendirme'),
+      for (final m in colorModels) Padding(padding: const EdgeInsets.only(bottom: 10), child: ColorModelCard(model: m)),
+      if (colorizer.error != null) Text(colorizer.error!, style: TextStyle(color: c.accent, fontSize: 13)),
+      Segmented<ColorizeMode>(
+        value: s.colorizeMode,
+        options: const {ColorizeMode.off: 'Kapalı', ColorizeMode.onDemand: 'Talep üzerine', ColorizeMode.auto: 'Otomatik'},
+        onChanged: (v) => s.update((x) => x.colorizeMode = v),
+      ),
+      if (s.colorizeMode == ColorizeMode.auto)
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(tr('İlk açılışta hazırlanacak sayfa sayısı'), style: TextStyle(color: c.ink, fontSize: 15)),
+            const SizedBox(height: 8),
+            Row(children: [
+              _Step(icon: Icons.remove, onTap: () => s.update((x) => x.autoColorizePages = max(1, x.autoColorizePages - 1))),
+              Expanded(child: Text('${s.autoColorizePages}', textAlign: TextAlign.center, style: TextStyle(color: c.ink, fontSize: 16))),
+              _Step(icon: Icons.add, onTap: () => s.update((x) => x.autoColorizePages = min(30, x.autoColorizePages + 1))),
+            ]),
+          ]),
+        ),
+    ];
+  }
+}
+
+/// Download, choose or delete one colorizer.
+class ColorModelCard extends StatelessWidget {
+  const ColorModelCard({super.key, required this.model});
+  final ColorModel model;
+
+  @override
+  Widget build(BuildContext context) {
+    final m = model;
     final s = settings;
     final c = s.palette;
     final installed = colorizer.isInstalled(m);
@@ -346,10 +395,10 @@ extension on _SettingsSheetState {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Expanded(child: Text(m.name, style: TextStyle(color: c.ink, fontSize: 16, fontWeight: FontWeight.w500))),
-          Text(m.sizeText, style: TextStyle(color: c.muted, fontSize: 13)),
+          Text(tr(m.sizeText), style: TextStyle(color: c.muted, fontSize: 13)),
         ]),
         const SizedBox(height: 4),
-        Text('${m.description} Telefonda, internetsiz çalışır. Lisans: ${m.license}.', style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+        Text('${tr(m.description)} ${tr('Telefonda, internetsiz çalışır.')} ${tr('Lisans')}: ${m.license}.', style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
         const SizedBox(height: 2),
         SelectableText(m.source, style: TextStyle(color: c.muted, fontSize: 12)),
         const SizedBox(height: 8),
@@ -359,57 +408,24 @@ extension on _SettingsSheetState {
           FilledButton(
             onPressed: () => colorizer.downloadModel(m),
             style: FilledButton.styleFrom(backgroundColor: c.accent, foregroundColor: c.paper),
-            child: const Text('İndir'),
+            child: Text(tr('İndir')),
           )
         else
           Row(children: [
             TextButton(
               onPressed: () => s.update((x) => x.colorModelId = m.id),
               style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero),
-              child: Text(selected ? 'Seçili' : 'Seç'),
+              child: Text(tr(selected ? 'Seçili' : 'Seç')),
             ),
             const SizedBox(width: 16),
             TextButton(
               onPressed: () => colorizer.removeModel(m),
               style: TextButton.styleFrom(foregroundColor: c.muted, padding: EdgeInsets.zero),
-              child: const Text('Sil'),
+              child: Text(tr('Sil')),
             ),
           ]),
       ]),
     );
-  }
-
-  List<Widget> _imageTab() {
-    final s = settings;
-    final c = s.palette;
-    return [
-      Heading('Görsel filtreler'),
-      _SettledSlider(label: 'Doygunluk', value: s.imageSaturation, min: 0, max: 2, percent: true, onEnd: (v) => s.update((x) => x.imageSaturation = v)),
-      _SettledSlider(label: 'Kontrast', value: s.imageContrast, min: 0.6, max: 1.6, percent: true, onEnd: (v) => s.update((x) => x.imageContrast = v)),
-      _SettledSlider(label: 'Keskinlik', value: s.imageSharpen, min: 0, max: 1, percent: true, onEnd: (v) => s.update((x) => x.imageSharpen = v)),
-      Toggle('Yüksek kaliteli büyütme', s.imageUpscale, (v) => s.update((x) => x.imageUpscale = v)),
-      Heading('Renklendirme'),
-      for (final m in colorModels) Padding(padding: const EdgeInsets.only(bottom: 10), child: _colorCard(m)),
-      if (colorizer.error != null) Text(colorizer.error!, style: TextStyle(color: c.accent, fontSize: 13)),
-      Segmented<ColorizeMode>(
-        value: s.colorizeMode,
-        options: const {ColorizeMode.off: 'Kapalı', ColorizeMode.onDemand: 'Talep üzerine', ColorizeMode.auto: 'Otomatik'},
-        onChanged: (v) => s.update((x) => x.colorizeMode = v),
-      ),
-      if (s.colorizeMode == ColorizeMode.auto)
-        Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('İlk açılışta hazırlanacak sayfa sayısı', style: TextStyle(color: c.ink, fontSize: 15)),
-            const SizedBox(height: 8),
-            Row(children: [
-              _Step(icon: Icons.remove, onTap: () => s.update((x) => x.autoColorizePages = max(1, x.autoColorizePages - 1))),
-              Expanded(child: Text('${s.autoColorizePages}', textAlign: TextAlign.center, style: TextStyle(color: c.ink, fontSize: 16))),
-              _Step(icon: Icons.add, onTap: () => s.update((x) => x.autoColorizePages = min(30, x.autoColorizePages + 1))),
-            ]),
-          ]),
-        ),
-    ];
   }
 }
 
@@ -419,7 +435,7 @@ class Heading extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(top: 20, bottom: 12),
-        child: Text(text, style: TextStyle(color: settings.palette.ink, fontFamily: 'serif', fontSize: 19, fontWeight: FontWeight.w500)),
+        child: Text(tr(text), style: TextStyle(color: settings.palette.ink, fontFamily: 'serif', fontSize: 19, fontWeight: FontWeight.w500)),
       );
 }
 
@@ -429,7 +445,7 @@ class _SubLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
-        child: Text(text, style: TextStyle(color: settings.palette.muted, fontSize: 13)),
+        child: Text(tr(text), style: TextStyle(color: settings.palette.muted, fontSize: 13)),
       );
 }
 
@@ -457,7 +473,7 @@ class _SettledSliderState extends State<_SettledSlider> {
       padding: const EdgeInsets.only(top: 14),
       child: Column(children: [
         Row(children: [
-          Expanded(child: Text(widget.label, style: TextStyle(color: c.ink, fontSize: 15))),
+          Expanded(child: Text(tr(widget.label), style: TextStyle(color: c.ink, fontSize: 15))),
           Text(text, style: TextStyle(color: c.muted, fontSize: 13)),
         ]),
         const SizedBox(height: 10),
@@ -508,7 +524,7 @@ class ColorDots extends StatelessWidget {
             shape: BoxShape.circle,
             border: Border.all(color: selected ? c.accent : c.line, width: selected ? 2.4 : 1),
           ),
-          child: label == null ? null : Text(label, style: TextStyle(color: c.ink, fontSize: 11)),
+          child: label == null ? null : Text(tr(label), style: TextStyle(color: c.ink, fontSize: 11)),
         ),
       );
     }
@@ -536,11 +552,11 @@ class ColorDots extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: c.paper,
-        title: Text('Renk kodu', style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 20)),
+        title: Text(tr('Renk kodu'), style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 20)),
         content: TextField(controller: field, autofocus: true, style: TextStyle(color: c.ink), decoration: const InputDecoration(hintText: '#A8492F')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Vazgeç')),
-          TextButton(onPressed: () => Navigator.pop(context, field.text), child: const Text('Tamam')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('Vazgeç'))),
+          TextButton(onPressed: () => Navigator.pop(context, field.text), child: Text(tr('Tamam'))),
         ],
       ),
     );
@@ -550,8 +566,8 @@ class ColorDots extends StatelessWidget {
   }
 }
 
-class _ThemeSwatch extends StatelessWidget {
-  const _ThemeSwatch({required this.theme});
+class ThemeSwatch extends StatelessWidget {
+  const ThemeSwatch({super.key, required this.theme});
   final PaperTheme theme;
   static const _names = {
     PaperTheme.paper: 'Kağıt',
@@ -580,7 +596,7 @@ class _ThemeSwatch extends StatelessWidget {
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Text('Aa', style: TextStyle(color: t.ink, fontFamily: 'serif', fontSize: 20)),
           const SizedBox(height: 2),
-          FittedBox(child: Text(_names[theme]!, style: TextStyle(color: t.muted, fontSize: 11))),
+          FittedBox(child: Text(tr(_names[theme]!), style: TextStyle(color: t.muted, fontSize: 11))),
         ]),
       ),
     );
@@ -622,7 +638,7 @@ class Segmented<T> extends StatelessWidget {
                   behavior: HitTestBehavior.opaque,
                   onTap: () => onChanged(k),
                   child: Center(
-                    child: Text(options[k]!, style: TextStyle(color: k == value ? c.ink : c.muted, fontSize: 14, fontWeight: FontWeight.w500)),
+                    child: Text(tr(options[k]!), style: TextStyle(color: k == value ? c.ink : c.muted, fontSize: 14, fontWeight: FontWeight.w500)),
                   ),
                 ),
               ),
@@ -663,7 +679,7 @@ class Toggle extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Row(children: [
-        Expanded(child: Text(label, style: TextStyle(color: c.ink, fontSize: 15))),
+        Expanded(child: Text(tr(label), style: TextStyle(color: c.ink, fontSize: 15))),
         Switch(value: value, onChanged: onChanged, activeThumbColor: c.accent),
       ]),
     );

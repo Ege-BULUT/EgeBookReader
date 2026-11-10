@@ -4,14 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'colorize.dart';
+import 'l10n.dart';
 import 'motion.dart';
 import 'main.dart' show settings;
 
 /// One picture the viewer can show, in colour and as it was.
 class ViewerItem {
-  ViewerItem({required this.id, required this.caption, required this.original, this.page});
+  ViewerItem({required this.id, required this.title, required this.pageNumber, required this.original, this.page});
   final String id;
-  final String caption;
+  final String title;
+  final int? pageNumber;
+  String get caption => pageNumber == null ? title : '$title · ${tr('Sayfa')} $pageNumber';
   final Future<Uint8List?> Function() original;
 
   /// Enough to colour it from here, when the picture comes from an open book.
@@ -143,12 +146,12 @@ class _PhotoViewerState extends State<PhotoViewer> with SingleTickerProviderStat
                 TextButton.icon(
                   onPressed: state == JobState.waiting || state == JobState.running
                       ? null
-                      : () => colorizer.enqueue(item.page!, front: true, rest: false, title: item.caption.split(' · ').first, pageNumber: _pageNumberOf(item)),
+                      : () => colorizer.enqueue(item.page!, front: true, rest: false, title: item.title, pageNumber: item.pageNumber),
                   style: TextButton.styleFrom(foregroundColor: Colors.white),
                   icon: state == JobState.waiting || state == JobState.running
                       ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                       : const Icon(Icons.palette_outlined, size: 20),
-                  label: const Text('Renklendir'),
+                  label: Text(tr('Renklendir')),
                 ),
             ]),
           ),
@@ -171,8 +174,6 @@ class _PhotoViewerState extends State<PhotoViewer> with SingleTickerProviderStat
       ),
     );
   }
-
-  int? _pageNumberOf(ViewerItem item) => int.tryParse(item.caption.split('Sayfa ').last);
 
   Widget _bar({required bool top, required Widget child}) {
     return Positioned(
@@ -237,7 +238,7 @@ class _ColorSwitch extends StatelessWidget {
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Icon(on ? Icons.palette : Icons.palette_outlined, color: Colors.white, size: 18),
             const SizedBox(width: 8),
-            Text(on ? 'Renkli' : 'Orijinal', style: const TextStyle(color: Colors.white, fontSize: 13)),
+            Text(tr(on ? 'Renkli' : 'Orijinal'), style: const TextStyle(color: Colors.white, fontSize: 13)),
           ]),
         ),
       );

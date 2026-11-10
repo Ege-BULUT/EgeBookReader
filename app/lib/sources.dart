@@ -187,7 +187,7 @@ Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
     case '.txt':
       return TextSource(_titleOf(path), _plainBlocks(await _readText(path)), null);
     default:
-      throw UnsupportedError('This format is not supported yet: ${p.extension(path)}');
+      throw const FormatException('Bu biçim henüz desteklenmiyor');
   }
 }
 
@@ -730,9 +730,9 @@ class EpubSource extends TextSource {
     }
 
     final container = entry('META-INF/container.xml');
-    if (container == null) throw const FormatException('Not an EPUB: META-INF/container.xml is missing');
+    if (container == null) throw const FormatException('Bu dosya bir EPUB gibi görünmüyor.');
     if (entry('META-INF/encryption.xml') != null && _hasDrm(entry('META-INF/encryption.xml')!)) {
-      throw const FormatException('This book is protected with DRM and cannot be opened.');
+      throw const FormatException('Bu kitap DRM ile korunuyor, açılamıyor.');
     }
     final opfPath = XmlDocument.parse(utf8.decode(container.content))
         .findAllElements('rootfile')

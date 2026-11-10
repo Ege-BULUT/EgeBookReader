@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EgeBookReader</title>
+<meta name="description" content="An ebook and comic reader built around how reading feels. Real page curl, on-device colorization, read aloud. Free and open source.">
+<link rel="icon" href="logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Orbitron:wght@600;800&family=Limelight&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=IBM+Plex+Sans:wght@400;500&display=swap&subset=latin-ext" rel="stylesheet">
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div id="table">
+  <button id="lang" aria-label="Language">TR</button>
+  <div id="stage"><div id="book" aria-live="polite"></div></div>
+  <nav id="controls" hidden>
+    <button id="prev" aria-label="Previous page">‹</button>
+    <button id="toc" data-t="contents">Contents</button>
+    <button id="next" aria-label="Next page">›</button>
+  </nav>
+</div>
+
+<template id="cover">
+  <div class="cover">
+    <div class="mark" aria-hidden="true">
+      <svg id="logo" viewBox="-4 -8 310 332">
+        <path id="ribbon" fill="var(--ribbon)"></path>
+        <g id="scene"></g>
+        <path d="M0 0h300l-20 30H30v256h250l20 30H0z" fill="var(--ink)"></path>
+        <path d="M30 174h22l-22 20z" id="fold"></path>
+      </svg>
+    </div>
+    <h1 id="title"><span>Ege</span> <span>Book</span> <span>Reader</span></h1>
+    <p class="author">Ege BULUT</p>
+    <div class="imprint">
+      <a class="dl" href="download/EgeBookReader.apk" data-t="download" onclick="event.stopPropagation()">Download for Android</a>
+      <span class="ver"><span data-t="version">Version</span> <span id="version"></span> · <a href="https://github.com/Ege-BULUT/EgeBookReader" onclick="event.stopPropagation()">GitHub</a></span>
+    </div>
+    <p class="hint" data-t="open">Tap the cover to open</p>
+  </div>
+</template>
+
+<template id="endpaper"><div class="page endpaper"><p class="epigraph" data-t="epigraph"></p></div></template>
+
+<template id="p1"><div class="page toc">
+  <h2 data-t="contents">Contents</h2>
+  <ol>
+    <li><a data-go="2"><span data-t="home">Home</span><i>2</i></a></li>
+    <li><a data-go="3"><span data-t="shots">Screenshots</span><i>3</i></a></li>
+    <li><a data-go="4"><span data-t="features">Features</span><i>4</i></a></li>
+    <li><a data-go="5"><span data-t="downloads">Downloads</span><i>5</i></a></li>
+    <li><a data-go="6"><span data-t="changelog">Changelog</span><i>6</i></a></li>
+    <li><a data-go="7"><span data-t="privacy">Privacy notice</span><i>7</i></a></li>
+    <li><a data-go="8"><span data-t="links">Links</span><i>8</i></a></li>
+  </ol>
+</div></template>
+
+<template id="p2"><div class="page">
+  <h2 data-t="home">Home</h2>
+  <p class="lead" data-t="home1"></p>
+  <p data-t="home2"></p>
+  <p data-t="home3"></p>
+  <a class="dl" href="download/EgeBookReader.apk" data-t="download">Download for Android</a>
+</div></template>
+
+<template id="p3"><div class="page">
+  <h2 data-t="shots">Screenshots</h2>
+  <div class="shots" id="shots"></div>
+</div></template>
+
+<template id="p4"><div class="page">
+  <h2 data-t="features">Features</h2>
+  <dl class="features" id="featurelist"></dl>
+</div></template>
+
+<template id="p5"><div class="page">
+  <h2 data-t="downloads">Downloads</h2>
+  <p class="lead" data-t="dl1"></p>
+  <table class="dltable">
+    <tr><th>Android</th><td><a class="dl" href="download/EgeBookReader.apk" data-t="apk">APK</a></td></tr>
+    <tr><th>iOS</th><td data-t="soon">Coming later</td></tr>
+    <tr><th>Windows</th><td data-t="soon"></td></tr>
+    <tr><th>macOS</th><td data-t="soon"></td></tr>
+    <tr><th>Linux</th><td data-t="soon"></td></tr>
+  </table>
+  <p class="small" data-t="dl2"></p>
+  <p class="small"><a href="https://github.com/Ege-BULUT/EgeBookReader" data-t="source">Source code</a> · AGPL-3.0</p>
+</div></template>
+
+<template id="p6"><div class="page">
+  <h2 data-t="changelog">Changelog</h2>
+  <div id="changes"></div>
+  <h3 data-t="models">Downloadable models</h3>
+  <p class="small" data-t="modelsText"></p>
+  <h3 data-t="credits">Credits</h3>
+  <p class="small" data-t="creditsText"></p>
+</div></template>
+
+<template id="p7"><div class="page legal">
+  <h2 data-t="privacy">Privacy notice</h2>
+  <div id="privacy"></div>
+</div></template>
+
+<template id="p8"><div class="page">
+  <h2 data-t="links">Links</h2>
+  <ul class="linklist">
+    <li><span>GitHub</span><a href="https://github.com/Ege-BULUT">github.com/Ege-BULUT</a></li>
+    <li><span>LinkedIn</span><a href="https://www.linkedin.com/in/egebulut">linkedin.com/in/egebulut</a></li>
+    <li><span data-t="contact">Contact</span><a href="mailto:egebulut.iletisim@outlook.com">egebulut.iletisim@outlook.com</a></li>
+    <li><span data-t="bug">Report a bug</span><a href="https://github.com/Ege-BULUT/EgeBookReader/issues/new?labels=bug">GitHub Issues</a></li>
+    <li><span data-t="request">Request a feature</span><a href="https://github.com/Ege-BULUT/EgeBookReader/issues/new?labels=enhancement">GitHub Issues</a></li>
+  </ul>
+</div></template>
+
+<template id="back"><div class="page endpaper back"></div></template>
+
+<script src="scenes.js"></script>
+<script src="book.js"></script>
+</body>
+</html>

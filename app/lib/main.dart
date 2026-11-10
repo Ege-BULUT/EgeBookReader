@@ -12,6 +12,8 @@ import 'package:pdfrx/pdfrx.dart';
 import 'colorize.dart';
 import 'fonts.dart';
 import 'gallery.dart';
+import 'l10n.dart';
+import 'onboarding.dart';
 import 'motion.dart';
 import 'reader.dart';
 import 'settings.dart';
@@ -101,7 +103,7 @@ class Library extends ChangeNotifier {
   /// Copies a picked file into the app and adds it. Throws a [FormatException] the UI can show.
   Future<void> import(String from) async {
     final ext = p.extension(from).toLowerCase();
-    if (!supportedExtensions.contains(ext)) throw FormatException('Bu biçim henüz desteklenmiyor: $ext');
+    if (!supportedExtensions.contains(ext)) throw FormatException('${tr('Bu biçim henüz desteklenmiyor')}: $ext');
     final to = File(p.join(_dir.path, 'books', p.basename(from)));
     await to.create(recursive: true);
     await File(from).copy(to.path);
@@ -181,7 +183,7 @@ class EgeBookReaderApp extends StatelessWidget {
           title: 'EgeBookReader',
           debugShowCheckedModeBanner: false,
           theme: themeFor(settings.palette),
-          home: const LibraryScreen(),
+          home: settings.onboarded ? const LibraryScreen() : const OnboardingScreen(),
         ),
       );
 }
@@ -240,7 +242,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
     if (!mounted) return;
     setState(() => _importing = false);
     if (failed.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Açılamadı: ${failed.join(', ')}')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Açılamadı')}: ${failed.join(', ')}')));
     }
   }
 
@@ -279,7 +281,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                   Navigator.pop(context);
                 },
                 style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: c.accent),
-                child: const Text('Kitaplıktan kaldır'),
+                child: Text(tr('Kitaplıktan kaldır')),
               ),
             ],
           ),
@@ -316,7 +318,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                         child: _Entering(
                           parent: _enter,
                           index: 0,
-                          child: Text('Kitaplık',
+                          child: Text(tr('Kitaplık'),
                               style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 32, height: 1.1)),
                         ),
                       ),
@@ -324,7 +326,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                         parent: _enter,
                         index: 0,
                         child: IconButton(
-                          tooltip: 'Galeri',
+                          tooltip: tr('Galeri'),
                           icon: Icon(Icons.photo_library_outlined, color: c.muted, size: 21),
                           onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GalleryScreen())),
                         ),
@@ -344,7 +346,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                           child: TextButton(
                             onPressed: _pick,
                             style: TextButton.styleFrom(foregroundColor: c.accent),
-                            child: const Text('Kitap ekle'),
+                            child: Text(tr('Kitap ekle')),
                           ),
                         ),
                     ]),
@@ -468,7 +470,7 @@ class _ContinueCardState extends State<_ContinueCard> {
           const SizedBox(width: 16),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Okumaya devam et', style: TextStyle(color: c.muted, fontSize: 12)),
+              Text(tr('Okumaya devam et'), style: TextStyle(color: c.muted, fontSize: 12)),
               const SizedBox(height: 4),
               Text(b.title,
                   maxLines: 2,
@@ -485,7 +487,7 @@ class _ContinueCardState extends State<_ContinueCard> {
                 ),
               ),
               const SizedBox(height: 6),
-              Text('Sayfa ${b.page + 1} / ${b.total}', style: TextStyle(color: c.muted, fontSize: 12)),
+              Text('${tr('Sayfa')} ${b.page + 1} / ${b.total}', style: TextStyle(color: c.muted, fontSize: 12)),
             ]),
           ),
         ]),
@@ -524,7 +526,7 @@ class _BookCardState extends State<_BookCard> {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: c.ink, fontSize: 13, fontWeight: FontWeight.w500, height: 1.25)),
           const SizedBox(height: 2),
-          Text(b.total == 0 ? 'Yeni' : '%${(b.progress * 100).round()}',
+          Text(b.total == 0 ? tr('Yeni') : '%${(b.progress * 100).round()}',
               style: TextStyle(color: c.muted, fontSize: 12)),
         ],
       ),

@@ -170,6 +170,8 @@ class Settings extends ChangeNotifier {
   ColorizeMode colorizeMode = ColorizeMode.onDemand;
   int autoColorizePages = 3;
   String colorModelId = 'manga';
+  bool onboarded = false;
+  String uiLanguage = 'system';
   bool ttsEnabled = true;
   VoiceSource voiceSource = VoiceSource.system;
   String? ttsModelId;
@@ -252,6 +254,8 @@ class Settings extends ChangeNotifier {
       colorizeMode = ColorizeMode.values.byName(j['colorizeMode'] as String? ?? 'onDemand');
       autoColorizePages = j['autoColorizePages'] as int? ?? 3;
       colorModelId = j['colorModelId'] as String? ?? 'manga';
+      onboarded = j['onboarded'] as bool? ?? false;
+      uiLanguage = j['uiLanguage'] as String? ?? 'system';
       ttsEnabled = j['ttsEnabled'] as bool? ?? true;
       voiceSource = VoiceSource.values.byName(j['voiceSource'] as String? ?? 'system');
       ttsModelId = j['ttsModelId'] as String?;
@@ -298,6 +302,8 @@ class Settings extends ChangeNotifier {
       'colorizeMode': colorizeMode.name,
       'autoColorizePages': autoColorizePages,
       'colorModelId': colorModelId,
+      'onboarded': onboarded,
+      'uiLanguage': uiLanguage,
       'ttsEnabled': ttsEnabled,
       'voiceSource': voiceSource.name,
       'ttsModelId': ttsModelId,

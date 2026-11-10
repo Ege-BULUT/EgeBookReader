@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'l10n.dart';
 import 'main.dart' show settings;
 
 final fonts = FontStore();
@@ -74,9 +75,9 @@ class FontStore extends ChangeNotifier {
   List<String> fallbacksOf(String family) => installed[family]?.fallbacks ?? const [];
 
   String nameOf(String family) => switch (family) {
-        'serif' => 'Serif (sistem)',
-        'sans-serif' => 'Sans (sistem)',
-        'monospace' => 'Monospace (sistem)',
+        'serif' => tr('Serif (sistem)'),
+        'sans-serif' => tr('Sans (sistem)'),
+        'monospace' => tr('Monospace (sistem)'),
         _ => installed[family]?.name ?? family,
       };
 
@@ -264,13 +265,13 @@ class _FontBrowserState extends State<FontBrowser> {
       final list = await fonts.catalog();
       if (mounted) setState(() => _all = list);
     } catch (_) {
-      if (mounted) setState(() => _error = 'Font listesi alınamadı. İnternet bağlantını kontrol et.');
+      if (mounted) setState(() => _error = tr('Font listesi alınamadı. İnternet bağlantını kontrol et.'));
     }
   }
 
   void _show(Object e) {
     if (!mounted) return;
-    final text = e is FormatException ? e.message : 'İndirilemedi. Bağlantını kontrol et.';
+    final text = e is FormatException ? tr(e.message) : tr('İndirilemedi. Bağlantını kontrol et.');
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
@@ -310,7 +311,7 @@ class _FontBrowserState extends State<FontBrowser> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: c.paper,
-        title: Text('Adresten font ekle', style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 20)),
+        title: Text(tr('Adresten font ekle'), style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 20)),
         content: TextField(
           controller: field,
           autofocus: true,
@@ -319,8 +320,8 @@ class _FontBrowserState extends State<FontBrowser> {
           decoration: const InputDecoration(hintText: 'https://…/font.ttf'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Vazgeç')),
-          TextButton(onPressed: () => Navigator.pop(context, field.text), child: const Text('Ekle')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('Vazgeç'))),
+          TextButton(onPressed: () => Navigator.pop(context, field.text), child: Text(tr('Ekle'))),
         ],
       ),
     );
@@ -353,9 +354,9 @@ class _FontBrowserState extends State<FontBrowser> {
             foregroundColor: c.ink,
             elevation: 0,
             scrolledUnderElevation: 0,
-            title: Text('Fontlar', style: TextStyle(fontFamily: 'serif', fontSize: 22, color: c.ink)),
+            title: Text(tr('Fontlar'), style: TextStyle(fontFamily: 'serif', fontSize: 22, color: c.ink)),
             actions: [
-              TextButton(onPressed: _fromFile, style: TextButton.styleFrom(foregroundColor: c.accent), child: const Text('Dosya')),
+              TextButton(onPressed: _fromFile, style: TextButton.styleFrom(foregroundColor: c.accent), child: Text(tr('Dosya'))),
               TextButton(onPressed: _fromUrl, style: TextButton.styleFrom(foregroundColor: c.accent), child: const Text('URL')),
             ],
           ),
@@ -367,7 +368,7 @@ class _FontBrowserState extends State<FontBrowser> {
                   onChanged: (v) => setState(() => _query = v),
                   style: TextStyle(color: c.ink),
                   decoration: InputDecoration(
-                    hintText: 'Ara',
+                    hintText: tr('Ara'),
                     hintStyle: TextStyle(color: c.muted),
                     filled: true,
                     fillColor: c.surface,
@@ -393,7 +394,7 @@ class _FontBrowserState extends State<FontBrowser> {
                   padding: const EdgeInsets.all(24),
                   child: Column(children: [
                     Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: c.muted)),
-                    TextButton(onPressed: _loadCatalog, child: const Text('Tekrar dene')),
+                    TextButton(onPressed: _loadCatalog, child: Text(tr('Tekrar dene'))),
                   ]),
                 ),
               )
@@ -449,7 +450,7 @@ class _FontBrowserState extends State<FontBrowser> {
                     color: value == e.key ? c.accent : c.surface,
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Text(e.value, style: TextStyle(color: value == e.key ? c.paper : c.ink, fontSize: 13)),
+                  child: Text(tr(e.value), style: TextStyle(color: value == e.key ? c.paper : c.ink, fontSize: 13)),
                 ),
               ),
             ),
@@ -516,7 +517,7 @@ class _CatalogRowState extends State<_CatalogRow> {
                 child: Text(f.family, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.ink, fontFamily: _family, fontSize: 21)),
               ),
               const SizedBox(height: 2),
-              Text('${_categories[f.category] ?? f.category} · ${f.license}', style: TextStyle(color: c.muted, fontSize: 12)),
+              Text('${tr(_categories[f.category] ?? f.category)} · ${f.license}', style: TextStyle(color: c.muted, fontSize: 12)),
             ]),
           ),
           const SizedBox(width: 12),

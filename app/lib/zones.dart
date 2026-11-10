@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'l10n.dart';
 import 'main.dart' show settings;
 import 'motion.dart';
 
@@ -147,12 +148,12 @@ class _ZoneEditorState extends State<ZoneEditor> {
     final c = settings.palette;
     final style = TextButton.styleFrom(foregroundColor: c.ink);
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      Text('Bir alanı sürükle, köşesinden boyutlandır, dokunup işlev ata.',
+      Text(tr('Bir alanı sürükle, köşesinden boyutlandır, dokunup işlev ata.'),
           textAlign: TextAlign.center, style: TextStyle(color: c.muted, fontSize: 13)),
       const SizedBox(height: 4),
       Wrap(alignment: WrapAlignment.center, children: [
-        TextButton(style: style, onPressed: () => _add(zones, circle: false), child: const Text('Dikdörtgen ekle')),
-        TextButton(style: style, onPressed: () => _add(zones, circle: true), child: const Text('Daire ekle')),
+        TextButton(style: style, onPressed: () => _add(zones, circle: false), child: Text(tr('Dikdörtgen ekle'))),
+        TextButton(style: style, onPressed: () => _add(zones, circle: true), child: Text(tr('Daire ekle'))),
         TextButton(
           style: style,
           onPressed: () {
@@ -161,12 +162,12 @@ class _ZoneEditorState extends State<ZoneEditor> {
               ..addAll(TapLayout.thirds());
             _changed();
           },
-          child: const Text('Sıfırla'),
+          child: Text(tr('Sıfırla')),
         ),
         TextButton(
           style: TextButton.styleFrom(foregroundColor: c.accent),
           onPressed: () => Navigator.pop(context),
-          child: const Text('Bitti'),
+          child: Text(tr('Bitti')),
         ),
       ]),
     ]);
@@ -191,7 +192,7 @@ class _ZoneEditorState extends State<ZoneEditor> {
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: a == z.action ? c.accent : c.line),
               ),
-              child: Text(zoneNames[a]!, style: TextStyle(color: a == z.action ? c.paper : c.ink, fontSize: 13)),
+              child: Text(tr(zoneNames[a]!), style: TextStyle(color: a == z.action ? c.paper : c.ink, fontSize: 13)),
             ),
           ),
       ]),
@@ -203,12 +204,12 @@ class _ZoneEditorState extends State<ZoneEditor> {
             zones.remove(z);
             _changed();
           },
-          child: const Text('Sil'),
+          child: Text(tr('Sil')),
         ),
         TextButton(
           style: TextButton.styleFrom(foregroundColor: c.ink),
           onPressed: () => setState(() => _selected = null),
-          child: const Text('Tamam'),
+          child: Text(tr('Tamam')),
         ),
       ]),
     ]);
@@ -275,7 +276,7 @@ class _ZoneView extends StatelessWidget {
                 color: c.accent.withValues(alpha: selected ? 0.28 : 0.12),
                 border: Border.all(color: c.accent, width: selected ? 2 : 1),
               ),
-              child: Text(zoneNames[zone.action]!,
+              child: Text(tr(zoneNames[zone.action]!),
                   textAlign: TextAlign.center, style: TextStyle(color: c.ink, fontSize: 13, fontWeight: FontWeight.w500)),
             ),
           ),

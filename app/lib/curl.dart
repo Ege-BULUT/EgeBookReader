@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 
+import 'l10n.dart';
+
 /// Where the fold lies on one frame of a turn: unit normal [n] pointing at the free edge, axis offset
 /// [t] (points on the axis satisfy dot(p, n) == t) and cylinder radius [r].
 class Fold {
@@ -408,7 +410,7 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
-                        child: Text('%${(_scale * 100).round()}  ·  Sığdır', style: const TextStyle(color: Colors.white, fontSize: 13)),
+                        child: Text('%${(_scale * 100).round()}  ·  ${tr('Sığdır')}', style: const TextStyle(color: Colors.white, fontSize: 13)),
                       ),
                     ),
                   ),

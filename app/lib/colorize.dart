@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'l10n.dart';
 import 'main.dart' show settings;
 import 'onnx.dart';
 
@@ -151,11 +152,9 @@ class Colorizer extends ChangeNotifier {
   bool originalExists(String id) => originalFile(id).existsSync();
   Future<Uint8List?> originalBytes(String id) async => originalExists(id) ? originalFile(id).readAsBytes() : null;
 
-  String captionOf(String id) {
-    final o = _origins[id];
-    if (o == null) return 'Renklendirilmiş görsel';
-    return '${o['title']} · Sayfa ${o['page']}';
-  }
+  String titleOf(String id) => _origins[id]?['title'] as String? ?? tr('Renklendirilmiş görsel');
+  int? pageOf(String id) => _origins[id]?['page'] as int?;
+  String captionOf(String id) => pageOf(id) == null ? titleOf(id) : '${titleOf(id)} · ${tr('Sayfa')} ${pageOf(id)}';
 
   /// Raise the suffix when the model or the merge changes, so old results are made again.
   File fileFor(String id) => File(p.join(_out.path, '$id-${model?.version ?? colorModels.first.version}.png'));
@@ -206,7 +205,7 @@ class Colorizer extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('model download failed: $e');
-      error = 'Model indirilemedi. Bağlantını ve boş alanı kontrol et.';
+      error = tr('Model indirilemedi. Bağlantını ve boş alanı kontrol et.');
     }
     if (temp.existsSync()) await temp.delete();
     downloads.remove(m.id);

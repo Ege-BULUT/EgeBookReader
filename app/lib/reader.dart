@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import 'colorize.dart';
 import 'curl.dart';
+import 'l10n.dart';
 import 'main.dart';
 import 'motion.dart';
 import 'zones.dart';
@@ -260,7 +261,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   void _fail(Object e) {
-    if (mounted) setState(() => _error = e is FormatException ? e.message : '$e');
+    if (mounted) setState(() => _error = e is FormatException ? tr(e.message) : '$e');
   }
 
   void _syncVolume() => _volume.invokeMethod('setEnabled', settings.volumeKeys && !speaker.active);
@@ -614,7 +615,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
           origin: () => image.rect.shift(shift),
           items: [
             for (final img in images)
-              ViewerItem(id: img.id, caption: '${widget.book.title} · Sayfa ${index + 1}', page: img, original: img.bytes),
+              ViewerItem(id: img.id, title: widget.book.title, pageNumber: index + 1, page: img, original: img.bytes),
           ],
         ),
       ));
@@ -885,7 +886,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: c.ink, fontSize: 15, height: 1.4)),
           const SizedBox(height: 14),
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Kitaplığa dön')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('Kitaplığa dön'))),
         ]),
       ),
     );
@@ -1100,7 +1101,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
             decoration: BoxDecoration(color: c.ink, borderRadius: BorderRadius.circular(6)),
-            child: Text('Ayarlar için sayfanın ortasına dokun', style: TextStyle(color: c.paper, fontSize: 14)),
+            child: Text(tr('Ayarlar için sayfanın ortasına dokun'), style: TextStyle(color: c.paper, fontSize: 14)),
           ),
         ),
       ),
@@ -1140,7 +1141,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                       style: TextStyle(color: c.ink, fontSize: 15, fontWeight: FontWeight.w500)),
                 ),
                 IconButton(
-                  tooltip: 'İçindekiler',
+                  tooltip: tr('İçindekiler'),
                   icon: Icon(Icons.format_list_bulleted_rounded, color: c.ink, size: 22),
                   onPressed: _openContents,
                 ),
@@ -1173,7 +1174,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                     style: TextStyle(color: c.muted, fontSize: 12, fontFeatures: const [ui.FontFeature.tabularFigures()])),
                 if (settings.ttsEnabled)
                   IconButton(
-                    tooltip: 'Sesli oku',
+                    tooltip: tr('Sesli oku'),
                     icon: Icon(Icons.headphones_outlined, color: c.ink, size: 21),
                     onPressed: _speakFromHere,
                   ),
@@ -1181,7 +1182,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                   onPressed: _openSettings,
                   style: TextButton.styleFrom(foregroundColor: c.ink),
                   icon: const Icon(Icons.tune, size: 20),
-                  label: const Text('Ayarlar'),
+                  label: Text(tr('Ayarlar')),
                 ),
               ]),
             ),
@@ -1203,13 +1204,13 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
         heightFactor: 0.72,
         child: ListView(padding: const EdgeInsets.fromLTRB(8, 18, 8, 24), children: [
           if (marks.isNotEmpty) ...[
-            const Padding(padding: EdgeInsets.fromLTRB(14, 0, 14, 8), child: Heading('Yer imleri')),
+            Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 8), child: Heading('Yer imleri')),
             for (final m in marks)
-              _contentRow(context, 'Sayfa ${(m * _count).round() + 1}', (m * _count).round(), 0, leading: Icon(Icons.bookmark, color: c.accent, size: 18)),
+              _contentRow(context, '${tr('Sayfa')} ${(m * _count).round() + 1}', (m * _count).round(), 0, leading: Icon(Icons.bookmark, color: c.accent, size: 18)),
           ],
-          const Padding(padding: EdgeInsets.fromLTRB(14, 0, 14, 8), child: Heading('İçindekiler')),
+          Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 8), child: Heading('İçindekiler')),
           if (toc.isEmpty)
-            Padding(padding: const EdgeInsets.all(14), child: Text('Bu kitapta içindekiler bilgisi yok.', style: TextStyle(color: c.muted, fontSize: 14))),
+            Padding(padding: const EdgeInsets.all(14), child: Text(tr('Bu kitapta içindekiler bilgisi yok.'), style: TextStyle(color: c.muted, fontSize: 14))),
           for (final e in toc) _contentRow(context, e.title, e.page, e.depth),
         ]),
       ),

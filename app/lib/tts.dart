@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
+import 'l10n.dart';
 import 'main.dart' show settings;
 import 'settings.dart';
 import 'sources.dart';
@@ -45,6 +46,9 @@ class VoiceModel {
   String get url => 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/$id.tar.bz2';
   bool get isSupertonic => id.contains('supertonic');
 }
+
+/// Supertonic's voices with the best-sounding ones first (the model's own numbers are these plus one).
+const supertonicOrder = [4, 8, 9, 3, 0, 1, 2, 5, 6, 7];
 
 const voiceCatalog = [
   VoiceModel(
@@ -114,7 +118,7 @@ class VoiceStore extends ChangeNotifier {
       });
     } catch (e) {
       debugPrint('voice download failed: $e');
-      error = 'Ses modeli indirilemedi. Bağlantını ve boş alanı kontrol et.';
+      error = tr('Ses modeli indirilemedi. Bağlantını ve boş alanı kontrol et.');
     }
     if (archive.existsSync()) await archive.delete();
     final leftover = File('${archive.path}.tar');
@@ -310,7 +314,7 @@ class Speaker extends ChangeNotifier {
       if (run == _run && active) onFinished?.call();
     } catch (_) {
       if (run != _run) return;
-      error = 'Seslendirme başarısız oldu. Ses ayarlarını kontrol et.';
+      error = tr('Seslendirme başarısız oldu. Ses ayarlarını kontrol et.');
       active = false;
       notifyListeners();
     }
@@ -379,7 +383,7 @@ class Speaker extends ChangeNotifier {
       _loadedModel = model.id;
     }
     final reply = ReceivePort();
-    _jobs!.send(_SynthJob(s.text, settings.ttsVoice.clamp(0, model.voiceCount - 1), settings.ttsSpeed, _modelLanguage(s, model), reply.sendPort));
+    _jobs!.send(_SynthJob(s.text, _sid(model), settings.ttsSpeed, _modelLanguage(s, model), reply.sendPort));
     final result = await reply.first;
     reply.close();
     if (result is String) throw StateError(result);
@@ -391,6 +395,11 @@ class Speaker extends ChangeNotifier {
     _isolate = null;
     _jobs = null;
     _loadedModel = null;
+  }
+
+  int _sid(VoiceModel model) {
+    final i = settings.ttsVoice.clamp(0, model.voiceCount - 1);
+    return model.isSupertonic ? supertonicOrder[i] : i;
   }
 
   String? _modelLanguage(SpokenSentence s, VoiceModel model) {

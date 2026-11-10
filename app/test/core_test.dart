@@ -248,7 +248,7 @@ void main() {
       await tester.dragFrom(const Offset(600, 300), const Offset(-300, 0));
       await tester.pump();
       expect(turned, [1]);
-      expect(find.textContaining('Sığdır'), findsNothing);
+      expect(find.textContaining('%'), findsNothing);
     });
 
     testWidgets('one finger straight up and down does not turn', (tester) async {
@@ -276,7 +276,7 @@ void main() {
       await pump(tester);
       await pinch(tester);
       expect(turned, isEmpty);
-      expect(find.textContaining('Sığdır'), findsOneWidget);
+      expect(find.textContaining('%'), findsOneWidget);
     });
 
     testWidgets('while zoomed, one finger moves the page instead of turning it', (tester) async {
@@ -285,9 +285,9 @@ void main() {
       await tester.dragFrom(const Offset(600, 300), const Offset(-300, 0));
       await tester.pump();
       expect(turned, isEmpty);
-      await tester.tap(find.textContaining('Sığdır'));
+      await tester.tap(find.textContaining('%'));
       await tester.pump();
-      expect(find.textContaining('Sığdır'), findsNothing);
+      expect(find.textContaining('%'), findsNothing);
       await tester.dragFrom(const Offset(600, 300), const Offset(-300, 0));
       await tester.pump();
       expect(turned, [1]);
