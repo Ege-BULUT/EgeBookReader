@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -6,6 +7,7 @@ import 'dart:ui' as ui;
 
 import 'package:egebookreader/colorize.dart';
 import 'package:egebookreader/curl.dart';
+import 'package:egebookreader/formats.dart';
 import 'package:egebookreader/settings.dart';
 import 'package:egebookreader/zones.dart';
 import 'package:egebookreader/sources.dart';
@@ -161,6 +163,62 @@ void main() {
     final ab = rgbToAb(red, 2);
     expect(ab[0], closeTo(80, 2)); // CIELAB a of pure red
     expect(ab[4], closeTo(67, 2)); // CIELAB b of pure red
+  });
+
+  group('formats', () {
+    String textOf(ParsedBook b) => b.blocks.whereType<TextBlock>().map((x) => x.inlines.map((i) => i.text).join()).join('\n');
+
+    // Real Project Gutenberg files, kept out of the repository; the tests run when they are present.
+    final fixtures = Platform.environment['EBR_FIXTURES'];
+    test('MOBI and AZW3 give the whole book in reading order', () {
+      for (final name in ['pp.mobi', 'pp.azw3']) {
+        final b = parseMobi(File('$fixtures/$name').readAsBytesSync(), 'x');
+        final text = textOf(b).toUpperCase();
+        expect(b.title.toLowerCase(), contains('pride'), reason: name);
+        expect(text.length, greaterThan(600000), reason: name);
+        final one = text.indexOf('IT IS A TRUTH UNIVERSALLY'), last = text.lastIndexOf('DARCY, AS WELL AS ELIZABETH');
+        expect(one, greaterThan(0), reason: name);
+        expect(last, greaterThan(one), reason: name);
+        expect(b.blocks.whereType<ImageBlock>(), isNotEmpty, reason: name);
+        expect(b.lang, startsWith('en'), reason: name);
+      }
+    }, skip: fixtures == null);
+
+    test('MOBI with DRM is refused in words, not with a crash', () {
+      final d = File('$fixtures/alice.mobi').readAsBytesSync();
+      final recordZero = ByteData.sublistView(d).getUint32(78);
+      d[recordZero + 13] = 2;
+      expect(() => parseMobi(d, 'x'), throwsA(isA<FormatException>()));
+    }, skip: fixtures == null);
+
+    test('FictionBook: structure, cp1251 and pictures', () {
+      const xml = '''<?xml version="1.0" encoding="windows-1251"?><FictionBook xmlns:l="http://www.w3.org/1999/xlink"><description><title-info><book-title>TITLE</book-title><lang>ru</lang></title-info></description><body><section><title><p>HEAD</p></title><p>one <strong>two</strong></p><image l:href="#a"/></section></body><binary id="a" content-type="image/png">AAAA</binary></FictionBook>''';
+      final bytes = Uint8List.fromList(latin1.encode(xml.replaceAll('HEAD', '\xC3\xEB\xE0\xE2\xE0')));
+      final b = parseFb2(bytes, 'x');
+      expect(b.title, 'TITLE');
+      expect(b.lang, 'ru');
+      final heading = b.blocks.first as TextBlock;
+      expect(heading.heading, 1);
+      expect(heading.inlines.first.text, 'Глава');
+      expect((b.blocks[1] as TextBlock).inlines.last.bold, isTrue);
+      expect(b.blocks.last, isA<ImageBlock>());
+    });
+
+    test('Markdown headings and emphasis', () {
+      final b = parseMarkdown('# Baş\n\nbir **iki** *üç*\nsatır\n\n- madde', 't');
+      expect((b.blocks[0] as TextBlock).heading, 1);
+      final p = b.blocks[1] as TextBlock;
+      expect(p.inlines.map((i) => i.text).join(), 'bir iki üç satır');
+      expect(p.inlines[1].bold, isTrue);
+      expect(p.inlines[3].italic, isTrue);
+      expect((b.blocks[2] as TextBlock).inlines.single.text, 'madde');
+    });
+
+    test('RTF text, Turkish code page and unicode escapes', () {
+      final b = parseRtf(Uint8List.fromList(latin1.encode(r"{\rtf1\ansi\ansicpg1254{\fonttbl{\f0 Arial;}}\f0 Ka\'f0\'fdt\par ikinci \u351? son}")), 't');
+      expect((b.blocks[0] as TextBlock).inlines.single.text, 'Kağıt');
+      expect((b.blocks[1] as TextBlock).inlines.single.text, 'ikinci ş son');
+    });
   });
 
   group('page gestures', () {

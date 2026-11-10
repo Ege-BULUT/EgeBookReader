@@ -15,6 +15,7 @@ import 'package:pdfrx/pdfrx.dart';
 import 'package:xml/xml.dart';
 
 import 'colorize.dart';
+import 'formats.dart';
 
 /// Everything that changes how a page looks; a new value means every page is rendered again.
 class PageStyle {
@@ -161,8 +162,24 @@ Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
       return reflowPdf ? await PdfReflowSource.create(doc, _titleOf(path)) : PdfSource(doc, _titleOf(path), path);
     case '.epub':
       return EpubSource.parse(await File(path).readAsBytes(), _titleOf(path));
-    case '.cbz':
-      return CbzSource.parse(await File(path).readAsBytes(), _titleOf(path));
+    case '.cbz' || '.cbt':
+      return CbzSource.parse(await File(path).readAsBytes(), _titleOf(path), tar: path.toLowerCase().endsWith('.cbt'));
+    case '.mobi' || '.azw' || '.azw3' || '.prc':
+      return parseMobi(await File(path).readAsBytes(), _titleOf(path));
+    case '.fb2':
+      return parseFb2(await File(path).readAsBytes(), _titleOf(path));
+    case '.fbz':
+      return parseFbz(await File(path).readAsBytes(), _titleOf(path));
+    case '.docx':
+      return parseDocx(await File(path).readAsBytes(), _titleOf(path));
+    case '.odt':
+      return parseOdt(await File(path).readAsBytes(), _titleOf(path));
+    case '.html' || '.htm' || '.xhtml':
+      return parseHtml(await File(path).readAsBytes(), _titleOf(path));
+    case '.md' || '.markdown':
+      return parseMarkdown(await _readText(path), _titleOf(path));
+    case '.rtf':
+      return parseRtf(await File(path).readAsBytes(), _titleOf(path));
     case '.txt':
       return TextSource(_titleOf(path), _plainBlocks(await _readText(path)), null);
     default:
@@ -170,7 +187,9 @@ Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
   }
 }
 
-const supportedExtensions = {'.pdf', '.epub', '.cbz', '.txt'};
+const supportedExtensions = {
+  '.pdf', '.epub', '.mobi', '.azw', '.azw3', '.prc', '.fb2', '.fbz', '.cbz', '.cbt', '.txt', '.docx', '.odt', '.html', '.htm', '.xhtml', '.md', '.markdown', '.rtf',
+};
 
 String _titleOf(String path) => p.basenameWithoutExtension(path).replaceAll('_', ' ');
 
@@ -778,13 +797,17 @@ class EpubSource extends TextSource {
     });
   }
 
-  static const _blockTags = {
-    'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'ul', 'ol', 'blockquote', 'section', 'article', 'pre',
-    'table', 'tr', 'td', 'th', 'figure', 'figcaption', 'header', 'footer', 'aside', 'main', 'nav', 'dl', 'dt', 'dd',
-    'center', 'tbody', 'thead',
-  };
+  static void _walk(dom.Element root, List<Block> out, Uint8List? Function(String) image) => walkHtml(root, out, image);
+}
 
-  static void _walk(dom.Element root, List<Block> out, Uint8List? Function(String) image) {
+const _blockTags = {
+  'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'ul', 'ol', 'blockquote', 'section', 'article', 'pre',
+  'table', 'tr', 'td', 'th', 'figure', 'figcaption', 'header', 'footer', 'aside', 'main', 'nav', 'dl', 'dt', 'dd',
+  'center', 'tbody', 'thead',
+};
+
+/// Turns HTML into blocks. [image] finds a picture's bytes from its src.
+void walkHtml(dom.Element root, List<Block> out, Uint8List? Function(String) image) {
     final inlines = <Inline>[];
 
     void flush(dom.Element parent) {
@@ -807,7 +830,10 @@ class EpubSource extends TextSource {
         if (t.isNotEmpty) inlines.add(Inline(t, bold: bold, italic: italic));
       } else if (node is dom.Element) {
         final tag = node.localName ?? '';
-        if (tag == 'br') {
+        if (tag == 'pagebreak') {
+          flush(root);
+          out.add(PageBreak());
+        } else if (tag == 'br') {
           inlines.add(Inline('\n', bold: bold, italic: italic));
         } else if (tag == 'img' || tag == 'image') {
           flush(root);
@@ -816,7 +842,7 @@ class EpubSource extends TextSource {
           if (bytes != null) out.add(ImageBlock(bytes));
         } else if (_blockTags.contains(tag)) {
           flush(root);
-          _walk(node, out, image);
+          walkHtml(node, out, image);
         } else if (tag != 'script' && tag != 'style') {
           final b = bold || tag == 'b' || tag == 'strong';
           final i = italic || tag == 'i' || tag == 'em' || tag == 'cite';
@@ -833,7 +859,7 @@ class EpubSource extends TextSource {
     flush(root);
   }
 
-  static List<Inline> _trimmed(List<Inline> inlines) {
+List<Inline> _trimmed(List<Inline> inlines) {
     final list = [...inlines];
     if (list.isNotEmpty) {
       final f = list.first;
@@ -843,7 +869,6 @@ class EpubSource extends TextSource {
     }
     return list;
   }
-}
 
 // ---------------------------------------------------------------------------------------------------------
 // Comics
@@ -857,8 +882,8 @@ class CbzSource extends PageSource {
   @override
   int get pageCount => _images.length;
 
-  static CbzSource parse(Uint8List bytes, String title) {
-    final zip = ZipDecoder().decodeBytes(bytes);
+  static CbzSource parse(Uint8List bytes, String title, {bool tar = false}) {
+    final zip = tar ? TarDecoder().decodeBytes(bytes) : ZipDecoder().decodeBytes(bytes);
     final images = zip.files
         .where((f) => f.isFile && RegExp(r'\.(jpe?g|png|webp|gif|bmp)$', caseSensitive: false).hasMatch(f.name))
         .toList()
