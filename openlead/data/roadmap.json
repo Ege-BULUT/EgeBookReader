@@ -97,7 +97,7 @@
     {
       "id": "M9",
       "name": "All formats",
-      "status": "next",
+      "status": "done",
       "description": "MOBI/AZW3, FB2, CBZ/CBR, DjVu, TXT and the rest of research/formats.md.",
       "why": "EPUB/PDF first; the rest after the core is stable.",
       "examples": [],
@@ -108,7 +108,7 @@
     {
       "id": "M10",
       "name": "iOS and desktop",
-      "status": "planned",
+      "status": "next",
       "description": "iOS app, Windows/macOS/Linux apps (Rune if chosen).",
       "why": "After Android is solid.",
       "examples": [],
