@@ -142,3 +142,4 @@ that names the old one.
 - A tap on a picture fitted edge to edge in either direction now counts as a tap on the page, so DjVu and landscape comic pages keep their tap zones instead of opening the picture viewer. Found while testing.
 - Checked on the emulator with a three-page DjVu made by c44, cjb2 and djvm (two IW44 colour pages, one JB2 text page): cover, all three pages, page count and the middle tap. An in-text EPUB picture still opens the viewer.
 - The site was updated to 0.1.3 at the user's request (features, changelog, credits, APK) and deployed to egebookreader.vercel.app.
+- Released on GitHub as a prerelease (v0.1.3) at the user's request.
