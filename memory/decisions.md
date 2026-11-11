@@ -157,3 +157,13 @@ that names the old one.
 - A book whose pages are mostly strips (taller than twice their width) is a webtoon: it always scrolls, whatever the turn mode, with no gap. Heights are rounded to whole device pixels; a fractional height left a one-pixel line of paper between strips.
 - A strip taller than 8192 device pixels is drawn coarser (texture limit). Tiles would fix it if it shows.
 - Checked: a test that a CBZ reports its pages' sizes, and on the emulator with a four-strip CBZ (720x2400 each): strips fill the width, meet without a line, the page counter follows, and the book reopens where it was left.
+
+## 2026-11-11 D20 Library: favourites, lists, categories, tags (0.1.6)
+
+- Asked for by the user on 2026-11-11: settings reachable from the library, categories, favourites, the reader's own lists, categories that can be switched on and off, tags, and finding them online behind a setting that is on by default.
+- Each book has `favorite`, `category`, `tags`, `lists` and `looked`. List names live in `lists.json` next to `library.json`, so an empty list survives. `Book.shelf` is the category, else "Çizgi roman" for comic archives, else "Diğer".
+- Online lookup (`lib/shelf.dart`): Open Library's search API with the title only, `fields=subject`, one result. Subjects become a category (story kinds such as science fiction win over plain "Fiction"; otherwise the most mentioned) and up to five short tags. Runs once per book, in the background, on start and after an import; the bundled samples are skipped; with no internet it stops and tries again next time. "Find online" in a book's sheet asks again and replaces the category.
+- "Switching categories on and off" was read as a "Group by category" setting (sections per category on the shelf). If the user meant hiding single categories, that is a follow-up.
+- The library header has a settings button that opens the settings on a new Library tab. Toggles now switch from anywhere on their row, not only the switch.
+- The site's privacy text (local, not deployed yet) now says titles go to Open Library unless the setting is off.
+- Checked: a test for the subject-to-category rules, and on the emulator with the network off: favourite star, a new list, a tag, the list filter, grouping by category, the settings tab, and "Find online" saying it could not reach the internet. The live Open Library call was not made from here.

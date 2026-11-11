@@ -16,7 +16,9 @@ import 'l10n.dart';
 import 'onboarding.dart';
 import 'motion.dart';
 import 'reader.dart';
+import 'settings_sheet.dart';
 import 'settings.dart';
+import 'shelf.dart';
 import 'sources.dart';
 import 'tts.dart';
 
@@ -45,13 +47,31 @@ class Book {
   /// Read right to left, as manga is.
   bool rtl = false;
 
+  bool favorite = false;
+
+  /// Chosen by the reader or found online; [shelf] fills in the rest.
+  String? category;
+  final tags = <String>[];
+
+  /// Names of the reader's own lists this book is on.
+  final lists = <String>{};
+
+  /// Looked up online already, found or not, so it is not asked again.
+  bool looked = false;
+
+  bool get isComic => comicExtensions.contains(p.extension(path).toLowerCase());
+
+  /// The category the library files the book under.
+  String get shelf => category ?? (isComic ? 'Çizgi roman' : 'Diğer');
+
   /// Positions as fractions of the book, so they survive a new font size or page layout.
   final List<double> bookmarks;
 
   double get progress => total <= 1 ? 0 : (page + 1) / total;
 
   Map<String, dynamic> toJson() =>
-      {'path': path, 'title': title, 'cover': coverPath, 'page': page, 'total': total, 'bookmarks': bookmarks, 'colorizeStarted': colorizeStarted, 'rtl': rtl};
+      {'path': path, 'title': title, 'cover': coverPath, 'page': page, 'total': total, 'bookmarks': bookmarks, 'colorizeStarted': colorizeStarted, 'rtl': rtl,
+        'favorite': favorite, 'category': category, 'tags': tags, 'lists': lists.toList(), 'looked': looked};
   static Book fromJson(Map<String, dynamic> j) => Book(
         j['path'] as String,
         j['title'] as String,
@@ -61,13 +81,23 @@ class Book {
         bookmarks: ((j['bookmarks'] as List<dynamic>?) ?? const []).map((e) => (e as num).toDouble()).toList(),
       )
         ..colorizeStarted = j['colorizeStarted'] as bool? ?? false
-        ..rtl = j['rtl'] as bool? ?? false;
+        ..rtl = j['rtl'] as bool? ?? false
+        ..favorite = j['favorite'] as bool? ?? false
+        ..category = j['category'] as String?
+        ..tags.addAll(((j['tags'] as List<dynamic>?) ?? const []).cast<String>())
+        ..lists.addAll(((j['lists'] as List<dynamic>?) ?? const []).cast<String>())
+        ..looked = j['looked'] as bool? ?? false;
 }
 
 class Library extends ChangeNotifier {
   final books = <Book>[];
+
+  /// The reader's own lists, in the order they were made. A list may be empty.
+  final listNames = <String>[];
   late Directory _dir;
   File get _index => File(p.join(_dir.path, 'library.json'));
+  File get _lists => File(p.join(_dir.path, 'lists.json'));
+  static const _samples = {'Dunyanin Dilleri.epub', 'Sayfa Örneği.pdf', 'Renklendirme Denemesi.epub'};
 
   Future<void> load() async {
     _dir = await getApplicationDocumentsDirectory();
@@ -75,6 +105,7 @@ class Library extends ChangeNotifier {
       final list = jsonDecode(_index.readAsStringSync()) as List<dynamic>;
       books.addAll(list.map((e) => Book.fromJson(e as Map<String, dynamic>)).where((b) => File(b.path).existsSync()));
     }
+    if (_lists.existsSync()) listNames.addAll((jsonDecode(_lists.readAsStringSync()) as List<dynamic>).cast<String>());
     // Each sample arrives once; one that was removed from the library stays removed.
     final seen = File(p.join(_dir.path, 'samples-added.txt'));
     final added = seen.existsSync() ? seen.readAsLinesSync().toSet() : <String>{};
@@ -96,7 +127,54 @@ class Library extends ChangeNotifier {
     await save();
   }
 
-  Future<void> save() => _index.writeAsString(jsonEncode(books));
+  Future<void> save() async {
+    await _index.writeAsString(jsonEncode(books));
+    await _lists.writeAsString(jsonEncode(listNames));
+  }
+
+  bool _lookingUp = false;
+
+  /// Finds a category and tags online for each book not looked up yet, one at a time, if the reader allows it.
+  Future<void> lookUpMissing() async {
+    if (_lookingUp) return;
+    _lookingUp = true;
+    try {
+      while (settings.onlineLookup) {
+        final b = books.where((b) => !b.looked && !_samples.contains(p.basename(b.path))).firstOrNull;
+        if (b == null || !await lookUp(b)) break; // no internet: try again next time
+      }
+    } finally {
+      _lookingUp = false;
+    }
+  }
+
+  /// Looks [b] up online. [replace] puts the found category over one already chosen. False when it could not ask.
+  Future<bool> lookUp(Book b, {bool replace = false}) async {
+    final subjects = await lookUpSubjects(b.title);
+    if (subjects == null) return false;
+    b.looked = true;
+    final found = b.isComic ? null : categoryFor(subjects);
+    if (found != null && (replace || b.category == null)) b.category = found;
+    for (final t in tagsFrom(subjects)) {
+      if (!b.tags.contains(t)) b.tags.add(t);
+    }
+    changed();
+    return true;
+  }
+
+  void addList(String name) {
+    if (name.isEmpty || listNames.contains(name)) return;
+    listNames.add(name);
+    changed();
+  }
+
+  void removeList(String name) {
+    listNames.remove(name);
+    for (final b in books) {
+      b.lists.remove(name);
+    }
+    changed();
+  }
 
   Future<void> _add(String path) async {
     final source = await openBook(path);
@@ -116,6 +194,7 @@ class Library extends ChangeNotifier {
     await _add(to.path);
     await save();
     notifyListeners();
+    lookUpMissing();
   }
 
   Future<void> remove(Book b) async {
@@ -212,9 +291,13 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
   bool _importing = false;
   bool _introDone = false;
 
+  /// What the grid shows: 'all', 'fav', or 'list:', 'cat:' or 'tag:' followed by a name.
+  String _filter = 'all';
+
   @override
   void initState() {
     super.initState();
+    library.lookUpMissing();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!motionOn(context, settings)) {
@@ -274,32 +357,167 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
   }
 
   void _details(Book b) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _BookSheet(book: b, newList: _newList),
+    );
+  }
+
+  /// Asks for a name and makes a list; returns the name, or null if the reader changed their mind.
+  Future<String?> _newList() async {
+    final c = settings.palette;
+    final field = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: c.paper,
+        title: Text(tr('Yeni liste'), style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 20)),
+        content: TextField(
+          controller: field,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: InputDecoration(hintText: tr('Listenin adı')),
+          onSubmitted: (v) => Navigator.pop(context, v),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('Vazgeç'))),
+          TextButton(onPressed: () => Navigator.pop(context, field.text), child: Text(tr('Oluştur'))),
+        ],
+      ),
+    );
+    field.dispose();
+    final trimmed = name?.trim() ?? '';
+    if (trimmed.isEmpty) return null;
+    library.addList(trimmed);
+    return trimmed;
+  }
+
+  void _settings() => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => const FractionallySizedBox(heightFactor: 0.72, child: SettingsSheet(isPdf: false, initialTab: 5)),
+      );
+
+  bool _matches(Book b) {
+    final i = _filter.indexOf(':');
+    final value = _filter.substring(i + 1);
+    return switch (i < 0 ? _filter : _filter.substring(0, i)) {
+      'fav' => b.favorite,
+      'list' => b.lists.contains(value),
+      'cat' => b.shelf == value,
+      'tag' => b.tags.contains(value),
+      _ => true,
+    };
+  }
+
+  /// One chip for everything the grid can be narrowed to: favourites, the reader's lists, categories and tags in use.
+  Widget _filters(Palette c) {
+    final books = library.books;
+    final cats = categories.where((k) => books.any((b) => b.shelf == k)).toList();
+    final count = <String, int>{};
+    for (final b in books) {
+      for (final t in b.tags) {
+        count[t] = (count[t] ?? 0) + 1;
+      }
+    }
+    final tags = (count.keys.toList()..sort((a, b) => count[b]!.compareTo(count[a]!))).take(12);
+    Widget chip(String key, String label, {IconData? icon, VoidCallback? onLong}) {
+      final on = _filter == key;
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: GestureDetector(
+          onLongPress: onLong,
+          child: ChoiceChip(
+            selected: on,
+            showCheckmark: false,
+            avatar: icon == null ? null : Icon(icon, size: 16, color: on ? c.paper : c.muted),
+            label: Text(label),
+            labelStyle: TextStyle(color: on ? c.paper : c.ink, fontSize: 13),
+            selectedColor: c.accent,
+            backgroundColor: c.surface,
+            side: BorderSide(color: on ? c.accent : c.line),
+            onSelected: (_) => setState(() => _filter = on ? 'all' : key),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 40,
+      child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 24), children: [
+        chip('all', tr('Tümü')),
+        chip('fav', tr('Favoriler'), icon: Icons.star_rounded),
+        for (final l in library.listNames)
+          chip('list:$l', l, icon: Icons.bookmarks_outlined, onLong: () => _listMenu(l)),
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: ActionChip(
+            avatar: Icon(Icons.add, size: 16, color: c.accent),
+            label: Text(tr('Liste')),
+            labelStyle: TextStyle(color: c.accent, fontSize: 13),
+            backgroundColor: c.paper,
+            side: BorderSide(color: c.line),
+            onPressed: () async {
+              final name = await _newList();
+              if (name != null && mounted) setState(() => _filter = 'list:$name');
+            },
+          ),
+        ),
+        for (final k in cats) chip('cat:$k', tr(k)),
+        for (final t in tags) chip('tag:$t', '#$t'),
+      ]),
+    );
+  }
+
+  void _listMenu(String name) {
     final c = settings.palette;
     showModalBottomSheet<void>(
       context: context,
       builder: (context) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 22, 24, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(b.title, style: TextStyle(color: c.ink, fontSize: 18, fontWeight: FontWeight.w500)),
-              const SizedBox(height: 14),
-              TextButton(
-                onPressed: () {
-                  library.remove(b);
-                  Navigator.pop(context);
-                },
-                style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: c.accent),
-                child: Text(tr('Kitaplıktan kaldır')),
-              ),
-            ],
-          ),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(name, style: TextStyle(color: c.ink, fontSize: 18, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 4),
+            Text(tr('Listeyi silmek kitapları silmez.'), style: TextStyle(color: c.muted, fontSize: 13)),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () {
+                library.removeList(name);
+                if (_filter == 'list:$name') setState(() => _filter = 'all');
+                Navigator.pop(context);
+              },
+              style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: c.accent),
+              child: Text(tr('Listeyi sil')),
+            ),
+          ]),
         ),
       ),
     );
   }
+
+  Widget _grid(List<Book> books, int columns, int from) => SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        sliver: SliverGrid.builder(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: 18,
+            mainAxisSpacing: 26,
+            childAspectRatio: 0.56,
+          ),
+          itemCount: books.length,
+          itemBuilder: (context, i) {
+            final b = books[i];
+            return _Entering(
+              key: ValueKey(b.path),
+              parent: _enter,
+              index: from + i,
+              child: _BookCard(book: b, onOpen: _open, onLong: () => _details(b)),
+            );
+          },
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -314,6 +532,10 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
             builder: (context, _) {
               final c = settings.palette;
               final latest = library.books.where((b) => b.total > 0).firstOrNull;
+              // A list or tag that went away takes its filter with it.
+              if (_filter != 'all' && _filter != 'fav' && !library.books.any(_matches) && !_filter.startsWith('list:')) _filter = 'all';
+              if (_filter.startsWith('list:') && !library.listNames.contains(_filter.substring(5))) _filter = 'all';
+              final shown = library.books.where(_matches).toList();
               return CustomScrollView(
               slivers: [
                 SliverPadding(
@@ -340,6 +562,15 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                           tooltip: tr('Galeri'),
                           icon: Icon(Icons.photo_library_outlined, color: c.muted, size: 21),
                           onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GalleryScreen())),
+                        ),
+                      ),
+                      _Entering(
+                        parent: _enter,
+                        index: 0,
+                        child: IconButton(
+                          tooltip: tr('Ayarlar'),
+                          icon: Icon(Icons.tune_rounded, color: c.muted, size: 21),
+                          onPressed: _settings,
                         ),
                       ),
                       if (_importing)
@@ -375,26 +606,30 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                     ),
                   ),
                 SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  sliver: SliverGrid.builder(
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: columns,
-                      crossAxisSpacing: 18,
-                      mainAxisSpacing: 26,
-                      childAspectRatio: 0.56,
-                    ),
-                    itemCount: library.books.length,
-                    itemBuilder: (context, i) {
-                      final b = library.books[i];
-                      return _Entering(
-                        key: ValueKey(b.path),
-                        parent: _enter,
-                        index: i + 2,
-                        child: _BookCard(book: b, onOpen: _open, onLong: () => _details(b)),
-                      );
-                    },
-                  ),
+                  padding: const EdgeInsets.only(bottom: 22),
+                  sliver: SliverToBoxAdapter(child: _Entering(parent: _enter, index: 1, child: _filters(c))),
                 ),
+                if (shown.isEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 30, 24, 0),
+                      child: Text(tr(_filter == 'fav' ? 'Favori yok. Bir kitaba uzun basıp yıldızla.' : 'Burada kitap yok. Bir kitaba uzun basıp ekle.'),
+                          textAlign: TextAlign.center, style: TextStyle(color: c.muted, fontSize: 14)),
+                    ),
+                  )
+                else if (!settings.groupByCategory || _filter != 'all')
+                  _grid(shown, columns, 2)
+                else
+                  for (final k in categories.where((k) => shown.any((b) => b.shelf == k))) ...[
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(24, 6, 24, 14),
+                      sliver: SliverToBoxAdapter(
+                        child: Text(tr(k), style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 21)),
+                      ),
+                    ),
+                    _grid(shown.where((b) => b.shelf == k).toList(), columns, 2),
+                    const SliverToBoxAdapter(child: SizedBox(height: 26)),
+                  ],
                 const SliverToBoxAdapter(child: SizedBox(height: 40)),
               ],
               );
@@ -530,7 +765,20 @@ class _BookCardState extends State<_BookCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: SizedBox(key: _cover, width: double.infinity, child: BookCover(book: b))),
+          Expanded(
+            child: Stack(fit: StackFit.expand, children: [
+              SizedBox(key: _cover, width: double.infinity, child: BookCover(book: b)),
+              if (b.favorite)
+                Positioned(
+                  left: 6,
+                  top: 6,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(color: c.paper.withValues(alpha: 0.85), shape: BoxShape.circle),
+                    child: Padding(padding: const EdgeInsets.all(3), child: Icon(Icons.star_rounded, size: 16, color: c.accent)),
+                  ),
+                ),
+            ]),
+          ),
           const SizedBox(height: 10),
           Text(b.title,
               maxLines: 2,
@@ -598,5 +846,160 @@ class BookCover extends StatelessWidget {
           ),
         ),
     ]);
+  }
+}
+
+/// What a long press on a book opens: favourite, category, lists, tags, looking it up online, removing it.
+class _BookSheet extends StatefulWidget {
+  const _BookSheet({required this.book, required this.newList});
+  final Book book;
+  final Future<String?> Function() newList;
+  @override
+  State<_BookSheet> createState() => _BookSheetState();
+}
+
+class _BookSheetState extends State<_BookSheet> {
+  final _tag = TextEditingController();
+  bool _looking = false;
+  bool _offline = false;
+
+  @override
+  void dispose() {
+    _tag.dispose();
+    super.dispose();
+  }
+
+  void _addTag(String text) {
+    final t = text.trim();
+    if (t.isNotEmpty && !widget.book.tags.contains(t)) {
+      widget.book.tags.add(t);
+      library.changed();
+    }
+    _tag.clear();
+  }
+
+  Future<void> _lookUp() async {
+    setState(() => _looking = true);
+    final ok = await library.lookUp(widget.book, replace: true);
+    if (mounted) {
+      setState(() {
+        _looking = false;
+        _offline = !ok;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: library,
+      builder: (context, _) {
+        final c = settings.palette;
+        final b = widget.book;
+        Widget label(String text) => Padding(
+              padding: const EdgeInsets.only(top: 18, bottom: 8),
+              child: Text(tr(text), style: TextStyle(color: c.muted, fontSize: 13)),
+            );
+        Widget pick(String text, bool on, VoidCallback tap) => FilterChip(
+              selected: on,
+              showCheckmark: false,
+              label: Text(text),
+              labelStyle: TextStyle(color: on ? c.paper : c.ink, fontSize: 13),
+              selectedColor: c.accent,
+              backgroundColor: c.surface,
+              side: BorderSide(color: on ? c.accent : c.line),
+              onSelected: (_) => tap(),
+            );
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.8),
+            child: SafeArea(
+              child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(24, 18, 24, 12), children: [
+                Row(children: [
+                  Expanded(child: Text(b.title, style: TextStyle(color: c.ink, fontSize: 18, fontWeight: FontWeight.w500))),
+                  IconButton(
+                    tooltip: tr(b.favorite ? 'Favorilerden çıkar' : 'Favorilere ekle'),
+                    icon: Icon(b.favorite ? Icons.star_rounded : Icons.star_outline_rounded, color: b.favorite ? c.accent : c.muted),
+                    onPressed: () {
+                      b.favorite = !b.favorite;
+                      library.changed();
+                    },
+                  ),
+                ]),
+                label('Kategori'),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final k in categories)
+                    pick(tr(k), b.shelf == k, () {
+                      b.category = k;
+                      library.changed();
+                    }),
+                ]),
+                label('Listeler'),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final l in library.listNames)
+                    pick(l, b.lists.contains(l), () {
+                      if (!b.lists.remove(l)) b.lists.add(l);
+                      library.changed();
+                    }),
+                  ActionChip(
+                    avatar: Icon(Icons.add, size: 16, color: c.accent),
+                    label: Text(tr('Yeni liste')),
+                    labelStyle: TextStyle(color: c.accent, fontSize: 13),
+                    backgroundColor: c.paper,
+                    side: BorderSide(color: c.line),
+                    onPressed: () async {
+                      final name = await widget.newList();
+                      if (name == null) return;
+                      b.lists.add(name);
+                      library.changed();
+                    },
+                  ),
+                ]),
+                label('Etiketler'),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final t in b.tags)
+                    InputChip(
+                      label: Text(t),
+                      labelStyle: TextStyle(color: c.ink, fontSize: 13),
+                      backgroundColor: c.surface,
+                      side: BorderSide(color: c.line),
+                      deleteIconColor: c.muted,
+                      onDeleted: () {
+                        b.tags.remove(t);
+                        library.changed();
+                      },
+                    ),
+                ]),
+                TextField(
+                  controller: _tag,
+                  style: TextStyle(color: c.ink, fontSize: 14),
+                  decoration: InputDecoration(hintText: tr('Etiket ekle'), isDense: true),
+                  onSubmitted: _addTag,
+                ),
+                const SizedBox(height: 14),
+                Row(children: [
+                  TextButton(
+                    onPressed: _looking ? null : _lookUp,
+                    style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: c.accent),
+                    child: Text(tr(_looking ? 'Aranıyor…' : 'İnternetten bul')),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () {
+                      library.remove(b);
+                      Navigator.pop(context);
+                    },
+                    style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: c.muted),
+                    child: Text(tr('Kitaplıktan kaldır')),
+                  ),
+                ]),
+                if (_offline) Text(tr('İnternete ulaşılamadı.'), style: TextStyle(color: c.muted, fontSize: 13)),
+              ]),
+            ),
+          ),
+        );
+      },
+    );
   }
 }

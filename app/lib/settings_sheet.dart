@@ -17,8 +17,9 @@ import 'tts.dart';
 import 'zones.dart';
 
 class SettingsSheet extends StatefulWidget {
-  const SettingsSheet({super.key, required this.isPdf, this.book});
+  const SettingsSheet({super.key, required this.isPdf, this.book, this.initialTab = 0});
   final bool isPdf;
+  final int initialTab;
 
   /// The open book, for settings kept per book.
   final Book? book;
@@ -27,7 +28,7 @@ class SettingsSheet extends StatefulWidget {
 }
 
 class _SettingsSheetState extends State<SettingsSheet> {
-  int _tab = 0;
+  late int _tab = widget.initialTab;
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +37,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
       builder: (context, _) {
         final c = settings.palette;
         final motion = motionOn(context, settings);
-        final tabs = [_themeTab, _textTab, _pageTab, _imageTab, _voiceTab];
+        final tabs = [_themeTab, _textTab, _pageTab, _imageTab, _voiceTab, _libraryTab];
         return Theme(
           data: themeFor(c),
           child: AnimatedContainer(
@@ -47,7 +48,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 padding: const EdgeInsets.fromLTRB(22, 18, 22, 4),
                 child: Segmented<int>(
                   value: _tab,
-                  options: const {0: 'Tema', 1: 'Yazı', 2: 'Sayfa', 3: 'Görsel', 4: 'Ses'},
+                  options: const {0: 'Tema', 1: 'Yazı', 2: 'Sayfa', 3: 'Görsel', 4: 'Ses', 5: 'Kitaplık'},
                   onChanged: (v) => setState(() => _tab = v),
                 ),
               ),
@@ -76,6 +77,22 @@ class _SettingsSheetState extends State<SettingsSheet> {
         );
       },
     );
+  }
+
+  List<Widget> _libraryTab() {
+    final s = settings;
+    return [
+      Heading('Kitaplık'),
+      Toggle('Kategorilere ayır', s.groupByCategory, (v) => s.update((x) => x.groupByCategory = v)),
+      Toggle('Kategori ve etiketleri internetten bul', s.onlineLookup, (v) {
+        s.update((x) => x.onlineLookup = v);
+        if (v) library.lookUpMissing();
+      }),
+      Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(tr('Yalnızca kitabın adı Open Library\'ye gönderilir.'), style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
+      ),
+    ];
   }
 
   List<Widget> _themeTab() {
@@ -648,7 +665,10 @@ class Segmented<T> extends StatelessWidget {
                   behavior: HitTestBehavior.opaque,
                   onTap: () => onChanged(k),
                   child: Center(
-                    child: Text(tr(options[k]!), style: TextStyle(color: k == value ? c.ink : c.muted, fontSize: 14, fontWeight: FontWeight.w500)),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(tr(options[k]!), style: TextStyle(color: k == value ? c.ink : c.muted, fontSize: 14, fontWeight: FontWeight.w500)),
+                    ),
                   ),
                 ),
               ),
@@ -686,12 +706,16 @@ class Toggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = settings.palette;
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Row(children: [
-        Expanded(child: Text(tr(label), style: TextStyle(color: c.ink, fontSize: 15))),
-        Switch(value: value, onChanged: onChanged, activeThumbColor: c.accent),
-      ]),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => onChanged(!value),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Row(children: [
+          Expanded(child: Text(tr(label), style: TextStyle(color: c.ink, fontSize: 15))),
+          Switch(value: value, onChanged: onChanged, activeThumbColor: c.accent),
+        ]),
+      ),
     );
   }
 }

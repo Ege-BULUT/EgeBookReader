@@ -173,6 +173,8 @@ class Settings extends ChangeNotifier {
   bool onboarded = false;
   String uiLanguage = 'system';
   bool ttsEnabled = true;
+  bool onlineLookup = true;
+  bool groupByCategory = false;
   VoiceSource voiceSource = VoiceSource.system;
   String? ttsModelId;
   int ttsVoice = 0;
@@ -257,6 +259,8 @@ class Settings extends ChangeNotifier {
       onboarded = j['onboarded'] as bool? ?? false;
       uiLanguage = j['uiLanguage'] as String? ?? 'system';
       ttsEnabled = j['ttsEnabled'] as bool? ?? true;
+      onlineLookup = j['onlineLookup'] as bool? ?? true;
+      groupByCategory = j['groupByCategory'] as bool? ?? false;
       voiceSource = VoiceSource.values.byName(j['voiceSource'] as String? ?? 'system');
       ttsModelId = j['ttsModelId'] as String?;
       ttsVoice = j['ttsVoice'] as int? ?? 0;
@@ -305,6 +309,8 @@ class Settings extends ChangeNotifier {
       'onboarded': onboarded,
       'uiLanguage': uiLanguage,
       'ttsEnabled': ttsEnabled,
+      'onlineLookup': onlineLookup,
+      'groupByCategory': groupByCategory,
       'voiceSource': voiceSource.name,
       'ttsModelId': ttsModelId,
       'ttsVoice': ttsVoice,

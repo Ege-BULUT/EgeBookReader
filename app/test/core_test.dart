@@ -10,6 +10,7 @@ import 'package:egebookreader/colorize.dart';
 import 'package:egebookreader/curl.dart';
 import 'package:egebookreader/formats.dart';
 import 'package:egebookreader/settings.dart';
+import 'package:egebookreader/shelf.dart';
 import 'package:egebookreader/tts.dart';
 import 'package:egebookreader/zones.dart';
 import 'package:egebookreader/sources.dart';
@@ -298,6 +299,15 @@ void main() {
         await book.prepare(const Size(360, 640), style);
         expect(book.pageSizes, [const Size(80, 400), const Size(60, 90)]);
       });
+    });
+
+    test('online subjects become a category and a few tags', () {
+      // Subjects as Open Library gives them for Pride and Prejudice and for Dune.
+      const pride = ['Fiction', 'Love stories', 'England -- Fiction', 'Courtship -- Fiction', 'Sisters -- Fiction', 'Social classes -- Fiction', 'History'];
+      expect(categoryFor(pride), 'Roman');
+      expect(categoryFor(['Science fiction', 'Fiction', 'Dune (Imaginary place)']), 'Bilim kurgu');
+      expect(categoryFor(['Cooking']), isNull);
+      expect(tagsFrom([...pride, 'fiction']), ['Fiction', 'Love stories', 'History']);
     });
 
     test('RTF text, Turkish code page and unicode escapes', () {
