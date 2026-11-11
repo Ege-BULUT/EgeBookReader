@@ -118,7 +118,7 @@ Done on the phone with the two downloadable models. Lines and lettering are unto
 | Kind | Extensions |
 |-|-|
 | Books | EPUB, MOBI, AZW, AZW3, PRC, FB2, FBZ |
-| Documents | PDF, DOCX, ODT, RTF, HTML, XHTML, Markdown, TXT |
+| Documents | PDF, DjVu, DOCX, ODT, RTF, HTML, XHTML, Markdown, TXT |
 | Comics | CBZ, CBR, CB7, CBT |
 
 DRM-protected books are not opened; the app says so. PDFs have a reflow switch, which pours the text into the reading layout.
@@ -196,7 +196,7 @@ memory/         requirements, research and the decisions behind the project
 ## Known limitations
 
 - Android on arm64 only for now.
-- DjVu does not open yet.
+- DjVu pages are pictures only: no reading aloud, search or table of contents for them yet.
 - PDF reflow leaves pictures out.
 - Colours from any model are a guess: often good, sometimes wrong.
 - A sentence that crosses two pages is read in two parts.
@@ -208,7 +208,7 @@ memory/         requirements, research and the decisions behind the project
 
 ## Credits
 
-Sample pages from [Pepper&Carrot](https://www.peppercarrot.com) by David Revoy (CC BY 4.0) and *Give My Regards to Black Jack* by SHUHO SATO. Paper filters are inspired by [Okuma-Reader](https://github.com/DrMint/Okuma-Reader). PDF rendering by [PDFium](https://pdfium.googlesource.com/pdfium/) through [pdfrx](https://github.com/espresso3389/pdfrx), voices run on [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), CBR and CB7 through [libarchive](https://github.com/libarchive/libarchive) and [xz](https://github.com/tukaani-project/xz), fonts from [Fontsource](https://fontsource.org). The logo's E is from the Ruthie typeface (OFL), and the website's silhouettes are from [game-icons.net](https://game-icons.net) (CC BY 3.0).
+Sample pages from [Pepper&Carrot](https://www.peppercarrot.com) by David Revoy (CC BY 4.0) and *Give My Regards to Black Jack* by SHUHO SATO. Paper filters are inspired by [Okuma-Reader](https://github.com/DrMint/Okuma-Reader). PDF rendering by [PDFium](https://pdfium.googlesource.com/pdfium/) through [pdfrx](https://github.com/espresso3389/pdfrx), voices run on [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), DjVu through [DjVuLibre](https://djvu.sourceforge.net) (GPL-2.0-or-later), CBR and CB7 through [libarchive](https://github.com/libarchive/libarchive) and [xz](https://github.com/tukaani-project/xz), fonts from [Fontsource](https://fontsource.org). The logo's E is from the Ruthie typeface (OFL), and the website's silhouettes are from [game-icons.net](https://game-icons.net) (CC BY 3.0).
 
 ## License
 

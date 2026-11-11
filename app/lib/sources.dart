@@ -16,6 +16,7 @@ import 'package:pdfrx/pdfrx.dart';
 import 'package:xml/xml.dart';
 
 import 'colorize.dart';
+import 'djvu.dart';
 import 'formats.dart';
 import 'rar.dart';
 
@@ -180,6 +181,8 @@ Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
       return CbzSource.parse(await File(path).readAsBytes(), _titleOf(path), tar: path.toLowerCase().endsWith('.cbt'));
     case '.cbr' || '.cb7':
       return ImageFolderSource.unpack(path, _titleOf(path));
+    case '.djvu' || '.djv':
+      return DjvuSource.open(path, _titleOf(path));
     case '.mobi' || '.azw' || '.azw3' || '.prc':
       return parseMobi(await File(path).readAsBytes(), _titleOf(path));
     case '.fb2':
@@ -204,7 +207,7 @@ Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
 }
 
 const supportedExtensions = {
-  '.pdf', '.epub', '.mobi', '.azw', '.azw3', '.prc', '.fb2', '.fbz', '.cbz', '.cbt', '.cbr', '.cb7', '.txt', '.docx', '.odt', '.html', '.htm', '.xhtml', '.md', '.markdown', '.rtf',
+  '.pdf', '.epub', '.mobi', '.azw', '.azw3', '.prc', '.fb2', '.fbz', '.cbz', '.cbt', '.cbr', '.cb7', '.djvu', '.djv', '.txt', '.docx', '.odt', '.html', '.htm', '.xhtml', '.md', '.markdown', '.rtf',
 };
 
 String _titleOf(String path) => p.basenameWithoutExtension(path).replaceAll('_', ' ');

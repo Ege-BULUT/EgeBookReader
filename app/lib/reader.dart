@@ -650,7 +650,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     final page = _pageSize!;
     for (final (i, image) in images.indexed) {
       if (!image.rect.contains(inPage)) continue;
-      if (image.rect.width * image.rect.height > page.width * page.height * 0.7) return false;
+      // A picture fitted to the page (edge to edge in either direction, as comic and DjVu pages are) counts as the page.
+      final fitted = image.rect.width >= page.width * 0.98 || image.rect.height >= page.height * 0.98;
+      if (fitted || image.rect.width * image.rect.height > page.width * page.height * 0.7) return false;
       final shift = _inset.topLeft + pageOrigin;
       Navigator.of(context).push(PageRouteBuilder<void>(
         opaque: false,

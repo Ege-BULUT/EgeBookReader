@@ -134,3 +134,10 @@ that names the old one.
 
 - CB7 opens through libarchive's 7z reader, the same path as CBR (unpacked once to a cache folder). liblzma from xz 5.8.1 (0BSD) is built static and linked in for LZMA and LZMA2, the usual 7z methods; Deflate uses the system zlib.
 - Checked on the emulator with three files made by bsdtar (LZMA2, LZMA, Deflate): all three import with their cover and open with all 6 pages. Not checked: BCJ2 filter archives, solid archives with many pages on a slow phone, encrypted 7z (refused like a password-protected CBR).
+
+## 2026-11-11 D17 DjVu and version 0.1.3
+
+- DjVu opens through DjVuLibre 3.5.28 (GPL-2.0-or-later, which may be combined into the AGPL-3.0 app). Only libdjvu is built, from the release tarball, with a hand-written `djvu/config.h`; `djvu/ebr_djvu.cpp` is a small C face (open, page count, page size, render RGBA, close) called from `app/lib/djvu.dart` on helper isolates, one call at a time.
+- Each DjVu page is drawn as a picture fitted to the page, so filters, colorize and the gallery work on it. No text layer yet: no reading aloud, search or contents for DjVu.
+- A tap on a picture fitted edge to edge in either direction now counts as a tap on the page, so DjVu and landscape comic pages keep their tap zones instead of opening the picture viewer. Found while testing.
+- Checked on the emulator with a three-page DjVu made by c44, cjb2 and djvm (two IW44 colour pages, one JB2 text page): cover, all three pages, page count and the middle tap. An in-text EPUB picture still opens the viewer.

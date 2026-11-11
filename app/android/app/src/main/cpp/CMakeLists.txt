@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(ebr_archive C)
+project(ebr_native C CXX)
 
 # libarchive (BSD-2-Clause) reads CBR and CB7 files. Only the parts needed for RAR and 7z are switched on.
 include(FetchContent)
@@ -42,3 +42,30 @@ FetchContent_Declare(libarchive
   URL_HASH SHA256=900fe9fc7237c2b04f090f3c3648de8fe597525771f5035016537ce2d667d12b)
 FetchContent_MakeAvailable(libarchive)
 set_target_properties(archive PROPERTIES OUTPUT_NAME ebr_archive)
+
+# DjVuLibre (GPL-2.0-or-later, usable under the app's AGPL-3.0) opens DjVu books. Only libdjvu is built, with a
+# hand-written config.h, plus ebr_djvu.cpp, a small C face for Dart FFI.
+FetchContent_Declare(djvulibre
+  URL https://downloads.sourceforge.net/project/djvu/DjVuLibre/3.5.28/djvulibre-3.5.28.tar.gz
+  URL_HASH SHA256=fcd009ea7654fde5a83600eb80757bd3a76998e47d13c66b54c8db849f8f2edc)
+FetchContent_GetProperties(djvulibre)
+if(NOT djvulibre_POPULATED)
+  FetchContent_Populate(djvulibre)
+endif()
+set(DJVU ${djvulibre_SOURCE_DIR}/libdjvu)
+add_library(ebr_djvu SHARED djvu/ebr_djvu.cpp
+  ${DJVU}/Arrays.cpp ${DJVU}/BSByteStream.cpp ${DJVU}/BSEncodeByteStream.cpp ${DJVU}/ByteStream.cpp ${DJVU}/DataPool.cpp
+  ${DJVU}/DjVmDir.cpp ${DJVU}/DjVmDir0.cpp ${DJVU}/DjVmDoc.cpp ${DJVU}/DjVmNav.cpp ${DJVU}/DjVuAnno.cpp
+  ${DJVU}/DjVuDocEditor.cpp ${DJVU}/DjVuDocument.cpp ${DJVU}/DjVuDumpHelper.cpp ${DJVU}/DjVuErrorList.cpp ${DJVU}/DjVuFile.cpp
+  ${DJVU}/DjVuFileCache.cpp ${DJVU}/DjVuGlobal.cpp ${DJVU}/DjVuGlobalMemory.cpp ${DJVU}/DjVuImage.cpp ${DJVU}/DjVuInfo.cpp
+  ${DJVU}/DjVuMessage.cpp ${DJVU}/DjVuMessageLite.cpp ${DJVU}/DjVuNavDir.cpp ${DJVU}/DjVuPalette.cpp ${DJVU}/DjVuPort.cpp
+  ${DJVU}/DjVuText.cpp ${DJVU}/DjVuToPS.cpp ${DJVU}/GBitmap.cpp ${DJVU}/GContainer.cpp ${DJVU}/GException.cpp
+  ${DJVU}/GIFFManager.cpp ${DJVU}/GMapAreas.cpp ${DJVU}/GOS.cpp ${DJVU}/GPixmap.cpp ${DJVU}/GRect.cpp ${DJVU}/GScaler.cpp
+  ${DJVU}/GSmartPointer.cpp ${DJVU}/GString.cpp ${DJVU}/GThreads.cpp ${DJVU}/GURL.cpp ${DJVU}/GUnicode.cpp
+  ${DJVU}/IFFByteStream.cpp ${DJVU}/IW44EncodeCodec.cpp ${DJVU}/IW44Image.cpp ${DJVU}/JB2EncodeCodec.cpp ${DJVU}/JB2Image.cpp
+  ${DJVU}/JPEGDecoder.cpp ${DJVU}/MMRDecoder.cpp ${DJVU}/MMX.cpp ${DJVU}/UnicodeByteStream.cpp ${DJVU}/XMLParser.cpp
+  ${DJVU}/XMLTags.cpp ${DJVU}/ZPCodec.cpp ${DJVU}/atomic.cpp ${DJVU}/ddjvuapi.cpp ${DJVU}/debug.cpp ${DJVU}/miniexp.cpp)
+target_include_directories(ebr_djvu PRIVATE djvu ${DJVU})
+target_compile_definitions(ebr_djvu PRIVATE HAVE_CONFIG_H=1 DDJVUAPI= MINILISPAPI= DIR_DATADIR="\"\"")
+target_compile_options(ebr_djvu PRIVATE -fexceptions -frtti -w)
+set_target_properties(ebr_djvu PROPERTIES CXX_STANDARD 11)
