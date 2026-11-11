@@ -42,13 +42,16 @@ class Book {
   int page, total;
   bool colorizeStarted = false;
 
+  /// Read right to left, as manga is.
+  bool rtl = false;
+
   /// Positions as fractions of the book, so they survive a new font size or page layout.
   final List<double> bookmarks;
 
   double get progress => total <= 1 ? 0 : (page + 1) / total;
 
   Map<String, dynamic> toJson() =>
-      {'path': path, 'title': title, 'cover': coverPath, 'page': page, 'total': total, 'bookmarks': bookmarks, 'colorizeStarted': colorizeStarted};
+      {'path': path, 'title': title, 'cover': coverPath, 'page': page, 'total': total, 'bookmarks': bookmarks, 'colorizeStarted': colorizeStarted, 'rtl': rtl};
   static Book fromJson(Map<String, dynamic> j) => Book(
         j['path'] as String,
         j['title'] as String,
@@ -56,7 +59,9 @@ class Book {
         page: j['page'] as int,
         total: j['total'] as int,
         bookmarks: ((j['bookmarks'] as List<dynamic>?) ?? const []).map((e) => (e as num).toDouble()).toList(),
-      )..colorizeStarted = j['colorizeStarted'] as bool? ?? false;
+      )
+        ..colorizeStarted = j['colorizeStarted'] as bool? ?? false
+        ..rtl = j['rtl'] as bool? ?? false;
 }
 
 class Library extends ChangeNotifier {
@@ -118,6 +123,12 @@ class Library extends ChangeNotifier {
     await File(b.path).delete().catchError((_) => File(b.path));
     await save();
     notifyListeners();
+  }
+
+  /// Saves a change to one book and tells whoever shows it.
+  void changed() {
+    notifyListeners();
+    save();
   }
 
   void moveToFront(Book b) {

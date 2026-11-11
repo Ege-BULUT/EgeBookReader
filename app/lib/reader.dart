@@ -87,6 +87,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     settings.addListener(_settingsChanged);
+    library.addListener(_libraryChanged);
     _volume.setMethodCallHandler(_onVolume);
     colorizer.onDone = _colorizedOne;
     colorizer.addListener(_colorizerChanged);
@@ -268,6 +269,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     settings.removeListener(_settingsChanged);
+    library.removeListener(_libraryChanged);
     colorizer.removeListener(_colorizerChanged);
     speaker.removeListener(_speakerChanged);
     speaker.onFinished = null;
@@ -300,6 +302,10 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   void _syncVolume() => _volume.invokeMethod('setEnabled', settings.volumeKeys && !speaker.active);
+
+  void _libraryChanged() {
+    if (mounted) setState(() {});
+  }
 
   void _settingsChanged() {
     _syncVolume();
@@ -676,7 +682,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   void _onTap(Offset at, Size size) {
     if (_speedOpen) return setState(() => _speedOpen = false);
     if (_menu) return _toggleMenu();
-    final action = settings.zones.actionAt(at, size);
+    // Right to left, the zones are mirrored: the left side turns forward.
+    final action = settings.zones.actionAt(widget.book.rtl ? Offset(size.width - at.dx, at.dy) : at, size);
     // In Tap mode the side zones are how pages turn, so they keep working over pictures.
     final zoneTurns = settings.mode == TurnMode.tap && (action == ZoneAction.prev || action == ZoneAction.next);
     if (!zoneTurns && _openPictureAt(at, size)) return;
@@ -949,6 +956,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       key: _curl,
       program: _program!,
       spread: _spreadActive,
+      rtl: widget.book.rtl,
       paper: c.paper,
       animate: settings.mode == TurnMode.flip && !settings.isEink && !MediaQuery.disableAnimationsOf(context),
       canGo: _canGo,
@@ -968,7 +976,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
     Widget withBadges(int i) => Stack(fit: StackFit.expand, children: [one(i), _spokenHighlight(i), ..._badges(i)]);
     return _spreadActive
-        ? Row(children: [Expanded(child: withBadges(_page)), Expanded(child: withBadges(_page + 1))])
+        ? Row(textDirection: widget.book.rtl ? TextDirection.rtl : TextDirection.ltr, children: [Expanded(child: withBadges(_page)), Expanded(child: withBadges(_page + 1))])
         : withBadges(_page);
   }
 
@@ -1423,7 +1431,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => FractionallySizedBox(heightFactor: 0.72, child: SettingsSheet(isPdf: _isPdf)),
+      builder: (_) => FractionallySizedBox(heightFactor: 0.72, child: SettingsSheet(isPdf: _isPdf, book: widget.book)),
     );
   }
 

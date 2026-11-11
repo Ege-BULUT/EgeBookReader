@@ -9,7 +9,7 @@ import 'package:path/path.dart' as p;
 import 'colorize.dart';
 import 'fonts.dart';
 import 'l10n.dart';
-import 'main.dart' show settings, themeFor;
+import 'main.dart' show Book, library, settings, themeFor;
 import 'motion.dart';
 import 'onboarding.dart';
 import 'settings.dart';
@@ -17,8 +17,11 @@ import 'tts.dart';
 import 'zones.dart';
 
 class SettingsSheet extends StatefulWidget {
-  const SettingsSheet({super.key, required this.isPdf});
+  const SettingsSheet({super.key, required this.isPdf, this.book});
   final bool isPdf;
+
+  /// The open book, for settings kept per book.
+  final Book? book;
   @override
   State<SettingsSheet> createState() => _SettingsSheetState();
 }
@@ -29,7 +32,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([settings, colorizer, voices]),
+      listenable: Listenable.merge([settings, colorizer, voices, library]),
       builder: (context, _) {
         final c = settings.palette;
         final motion = motionOn(context, settings);
@@ -219,6 +222,11 @@ class _SettingsSheetState extends State<SettingsSheet> {
           child: Text(tr('Dokunma alanlarını düzenle')),
         ),
       ],
+      if (widget.book case final book? when s.mode != TurnMode.scroll)
+        Toggle('Sağdan sola oku (manga)', book.rtl, (v) {
+          book.rtl = v;
+          library.changed();
+        }),
       Toggle('Ses tuşlarıyla çevir', s.volumeKeys, (v) => s.update((x) => x.volumeKeys = v)),
       Toggle('Ses tuşlarını ters çevir', s.invertVolume, (v) => s.update((x) => x.invertVolume = v)),
     ];

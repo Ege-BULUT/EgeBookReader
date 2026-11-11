@@ -288,13 +288,14 @@ void main() {
     late ui.FragmentProgram program;
     var turned = <int>[];
 
-    Future<void> pump(WidgetTester tester) async {
+    Future<void> pump(WidgetTester tester, {bool rtl = false}) async {
       await tester.runAsync(() async => program = await ui.FragmentProgram.fromAsset('shaders/page_curl.frag'));
       turned = [];
       await tester.pumpWidget(MaterialApp(
         home: PageCurlView(
           program: program,
           spread: false,
+          rtl: rtl,
           paper: Colors.white,
           animate: false,
           canGo: (_) => true,
@@ -312,6 +313,15 @@ void main() {
       await tester.pump();
       expect(turned, [1]);
       expect(find.textContaining('%'), findsNothing);
+    });
+
+    testWidgets('right to left, a swipe toward the right turns forward', (tester) async {
+      await pump(tester, rtl: true);
+      await tester.dragFrom(const Offset(200, 300), const Offset(300, 0));
+      await tester.pump();
+      await tester.dragFrom(const Offset(600, 300), const Offset(-300, 0));
+      await tester.pump();
+      expect(turned, [1, -1]);
     });
 
     testWidgets('one finger straight up and down does not turn', (tester) async {

@@ -143,3 +143,9 @@ that names the old one.
 - Checked on the emulator with a three-page DjVu made by c44, cjb2 and djvm (two IW44 colour pages, one JB2 text page): cover, all three pages, page count and the middle tap. An in-text EPUB picture still opens the viewer.
 - The site was updated to 0.1.3 at the user's request (features, changelog, credits, APK) and deployed to egebookreader.vercel.app.
 - Released on GitHub as a prerelease (v0.1.3) at the user's request.
+
+## 2026-11-11 D18 Right-to-left reading (0.1.4)
+
+- A per-book switch, "Read right to left (manga)", in the Page tab (hidden in Scroll mode); stored as `rtl` on the book.
+- The turn is drawn mirrored (`Transform.flip` around the curl painter) and the shader samples each page mirrored (`uMirror`), so pages read the right way round while the paper lifts from the left edge. Finger positions for the turn are mirrored too; pinch and pan are not. Spreads put the current page on the right. Tap zones are looked up mirrored, so the left side turns forward. Volume keys keep their meaning (next is next).
+- Checked: a widget test (a swipe to the right turns forward, to the left turns back) and on the emulator with a DjVu, a turn held half way from the left edge. Not done yet: the page scrubber still runs left to right.

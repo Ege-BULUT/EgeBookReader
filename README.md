@@ -109,6 +109,7 @@ Done on the phone with the two downloadable models. Lines and lettering are unto
 
 - **Flip** is the default. A cylinder curl drawn per pixel in a GPU shader, driven by where you grab the page. It settles with a spring and keeps the speed of your swipe.
 - **Tap zones.** Draw rectangles and circles on the screen and give each one a job: previous, next, menu, bookmark. Portrait and landscape have separate layouts.
+- **Right to left** for manga, set per book. The page lifts from the left edge, the left side of the screen turns forward, and two-page spreads read right to left.
 - **Endless vertical scroll**, with an adjustable gap between pages (2 px by default).
 - **Volume keys** turn pages in every mode, and can be inverted.
 - **Pinch to zoom.** Two fingers always zoom and one finger always turns, decided the moment the second finger lands. Zoomed pages are redrawn sharp.

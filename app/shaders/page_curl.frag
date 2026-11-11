@@ -13,6 +13,7 @@ uniform float uT;
 uniform float uR;
 uniform float uShowThrough;
 uniform vec3 uPaper;
+uniform float uMirror;
 uniform sampler2D uFront;
 uniform sampler2D uBack;
 uniform sampler2D uUnder;
@@ -24,6 +25,9 @@ const float PI = 3.14159265;
 
 vec2 paperUV(vec2 p) { return vec2((p.x - uHinge) / uPageW, p.y / uSize.y); }
 
+// Right-to-left reading draws the whole turn mirrored, so each page is sampled mirrored to read the right way round.
+vec2 mir(vec2 uv) { return vec2(uMirror > 0.5 ? 1.0 - uv.x : uv.x, uv.y); }
+
 // Signed distance from p to the paper's edges: positive inside.
 float inside(vec2 p) {
   return min(min(p.x - uHinge, uHinge + uPageW - p.x), min(p.y, uSize.y - p.y));
@@ -31,13 +35,13 @@ float inside(vec2 p) {
 
 float coverage(vec2 p) { return clamp(inside(p) + 0.5, 0.0, 1.0); }
 
-vec3 frontAt(vec2 p) { return texture(uFront, paperUV(p)).rgb; }
+vec3 frontAt(vec2 p) { return texture(uFront, mir(paperUV(p))).rgb; }
 
 vec3 backAt(vec2 p) {
   vec2 uv = paperUV(p);
-  if (uShowThrough > 0.5) return mix(texture(uBack, uv).rgb, uPaper, 0.86);
+  if (uShowThrough > 0.5) return mix(texture(uBack, mir(uv)).rgb, uPaper, 0.86);
   uv.x = 1.0 - uv.x;
-  return texture(uBack, uv).rgb;
+  return texture(uBack, mir(uv)).rgb;
 }
 
 void main() {
@@ -45,8 +49,8 @@ void main() {
   float s = dot(q, uN) - uT;
   bool dark = dot(uPaper, vec3(0.299, 0.587, 0.114)) < 0.25;
 
-  vec3 color = q.x < uHinge ? texture(uLeft, vec2(q.x / uHinge, q.y / uSize.y)).rgb
-                            : texture(uUnder, paperUV(q)).rgb;
+  vec3 color = q.x < uHinge ? texture(uLeft, mir(vec2(q.x / uHinge, q.y / uSize.y))).rgb
+                            : texture(uUnder, mir(paperUV(q))).rgb;
 
   if (s <= 0.0 && inside(q) >= 0.0) color = frontAt(q);
 

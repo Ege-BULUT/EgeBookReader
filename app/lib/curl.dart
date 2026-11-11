@@ -59,6 +59,7 @@ class CurlPainter extends CustomPainter {
     required this.back,
     required this.under,
     required this.left,
+    this.mirror = false,
     super.repaint,
   });
 
@@ -68,13 +69,14 @@ class CurlPainter extends CustomPainter {
   final bool showThrough;
   final Color paper;
   final ui.Image front, back, under, left;
+  final bool mirror;
 
   @override
   void paint(Canvas canvas, Size size) {
     final f = fold();
     final values = <double>[
       size.width, size.height, hinge, pageW, f.n.dx, f.n.dy, f.t, f.r,
-      showThrough ? 1 : 0, paper.r, paper.g, paper.b,
+      showThrough ? 1 : 0, paper.r, paper.g, paper.b, mirror ? 1 : 0,
     ];
     for (var i = 0; i < values.length; i++) {
       shader.setFloat(i, values[i]);
@@ -102,6 +104,7 @@ class PageCurlView extends StatefulWidget {
     super.key,
     required this.program,
     required this.spread,
+    this.rtl = false,
     required this.paper,
     required this.animate,
     required this.canGo,
@@ -114,6 +117,9 @@ class PageCurlView extends StatefulWidget {
 
   final ui.FragmentProgram program;
   final bool spread;
+
+  /// Right to left (manga): the turn is drawn and followed mirrored, so pages lift from the left edge.
+  final bool rtl;
   final Color paper;
 
   /// False in E-ink mode and when the system asks for reduced motion: pages change at once.
@@ -161,6 +167,9 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
 
   double get _hinge => widget.spread ? _size.width / 2 : 0;
   double get _pageW => widget.spread ? _size.width / 2 : _size.width;
+
+  /// A point in the turn's own coordinates, which are mirrored when reading right to left.
+  Offset _m(Offset p) => widget.rtl ? Offset(_size.width - p.dx, p.dy) : p;
 
   @override
   void initState() {
@@ -286,7 +295,7 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
   }
 
   void _scaleStart(ScaleStartDetails d) {
-    _start = d.localFocalPoint;
+    _start = _m(d.localFocalPoint);
     _dragTotal = Offset.zero;
     _scaleAtStart = _scale;
   }
@@ -315,7 +324,7 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
       setState(() => _pan = _clampPan(_pan + d.focalPointDelta));
       return;
     }
-    _dragTotal += d.focalPointDelta;
+    _dragTotal += widget.rtl ? Offset(-d.focalPointDelta.dx, d.focalPointDelta.dy) : d.focalPointDelta;
     if (_dir == 0 && !_anim.isAnimating) {
       if (_dragTotal.dx.abs() < 10 || _dragTotal.dy.abs() > _dragTotal.dx.abs() * 1.4) return;
       final dir = _dragTotal.dx < 0 ? 1 : -1;
@@ -327,12 +336,12 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
       if (!_begin(dir, _start)) return;
       _finger = dir > 0 ? _flat : _turned;
     }
-    if (_dir != 0 && !_landing) _track(d.localFocalPoint);
+    if (_dir != 0 && !_landing) _track(_m(d.localFocalPoint));
   }
 
   void _scaleEnd(ScaleEndDetails d) {
     if (_dir != 0 && !_landing) {
-      final vx = d.velocity.pixelsPerSecond.dx;
+      final vx = d.velocity.pixelsPerSecond.dx * (widget.rtl ? -1 : 1);
       final projected = _finger.dx + vx * 0.18;
       // On a single page the turned position is off screen, so half way is measured on the visible part.
       final middle = _dir > 0
@@ -396,7 +405,9 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
                   child: widget.still,
                 )
               else
-                CustomPaint(
+                Transform.flip(
+                  flipX: widget.rtl,
+                  child: CustomPaint(
                   size: Size.infinite,
                   painter: CurlPainter(
                     shader: _shader,
@@ -409,7 +420,9 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
                     back: pages.back,
                     under: pages.under,
                     left: pages.left,
+                    mirror: widget.rtl,
                     repaint: _frame,
+                  ),
                   ),
                 ),
               if (_zoomed)

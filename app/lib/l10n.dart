@@ -99,6 +99,7 @@ const _en = <String, String>{
   'Kaydırma': 'Scroll',
   'Sayfalar arası boşluk': 'Gap between pages',
   'Dokunma alanlarını düzenle': 'Edit tap zones',
+  'Sağdan sola oku (manga)': 'Read right to left (manga)',
   'Ses tuşlarıyla çevir': 'Turn pages with volume keys',
   'Ses tuşlarını ters çevir': 'Invert volume keys',
   'Sesli okuma': 'Read aloud',
