@@ -17,7 +17,7 @@ Free, open source, no account and no ads.</p>
   <img alt="Android 7+" src="https://img.shields.io/badge/Android-7%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Flutter 3.47" src="https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter&logoColor=white">
   <img alt="Works offline" src="https://img.shields.io/badge/works-offline-7E3321">
-  <img alt="Version 0.1.1" src="https://img.shields.io/badge/version-0.1.1%20preview-F59E0B">
+  <img alt="Version 0.1.3" src="https://img.shields.io/badge/version-0.1.3%20preview-F59E0B">
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-2EA043"></a>
 </p>
 
@@ -36,7 +36,7 @@ Free, open source, no account and no ads.</p>
 </div>
 
 > [!NOTE]
-> **0.1.1 is a preview for Android.** It has been tested on an emulator and by its author on one phone. iOS, Windows, macOS and Linux will come from the same code later.
+> **0.1.3 is a preview for Android.** It has been tested on an emulator and by its author on one phone. iOS, Windows, macOS and Linux will come from the same code later.
 
 ## Why EgeBookReader
 
@@ -144,6 +144,7 @@ DRM-protected books are not opened; the app says so. PDFs have a reflow switch, 
 
 - Each word is marked like a yellow highlighter as it is read, and the page turns by itself.
 - Drag the bar on the player, or hold the marker and move it: the highlight follows live and the voice goes there.
+- Speaking speed from 0.5x to 3x. Tap the speed button on the player to step through speeds, or hold it for a slider.
 - Keeps reading with the screen off or another app in front, with pause and stop in the notification.
 - The system voice is the default. Each downloadable voice lists its languages, license and source.
 - Any service with an OpenAI-style `/audio/speech` endpoint works with your own key.
@@ -171,7 +172,7 @@ Manga Light Colorizer's license forbids commercial use. EgeBookReader is free an
 2. Allow installs from your browser when Android asks.
 3. Open the app. The setup takes a minute, and every step can be skipped.
 
-The app is not on Google Play yet.
+Every version, with its notes, is also on [GitHub Releases](https://github.com/Ege-BULUT/EgeBookReader/releases). The app is not on Google Play yet.
 
 ## Build from source
 
@@ -189,6 +190,7 @@ The APK is written to `build/app/outputs/flutter-apk/`.
 ```
 app/lib/        the app: reader, formats, colorizer, voices, setup
 app/shaders/    page curl, dark PDF pages, picture filters
+app/android/app/src/main/cpp/   native builds of libarchive, xz and DjVuLibre
 site/           the website, plain HTML, CSS and JavaScript
 memory/         requirements, research and the decisions behind the project
 ```
