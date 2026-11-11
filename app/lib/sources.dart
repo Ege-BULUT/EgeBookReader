@@ -1003,8 +1003,7 @@ class ImageFolderSource extends PageSource {
   final List<File> _files;
 
   static Future<ImageFolderSource> unpack(String path, String title) async {
-    final base = await getApplicationCacheDirectory();
-    final folder = Directory(p.join(base.path, 'comics', p.basename(path).hashCode.toRadixString(36)));
+    final folder = await comicFolder(path);
     final done = File(p.join(folder.path, '.done'));
     if (!done.existsSync()) {
       if (folder.existsSync()) await folder.delete(recursive: true);
@@ -1063,5 +1062,9 @@ Future<Size> _measure(Uint8List bytes) async {
   buffer.dispose();
   return size;
 }
+
+/// Where a RAR or 7z comic is unpacked.
+Future<Directory> comicFolder(String path) async =>
+    Directory(p.join((await getApplicationCacheDirectory()).path, 'comics', p.basename(path).hashCode.toRadixString(36)));
 
 bool _isPicture(String name) => RegExp(r'\.(jpe?g|png|webp|gif|bmp)$', caseSensitive: false).hasMatch(name);

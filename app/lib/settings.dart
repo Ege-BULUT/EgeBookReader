@@ -149,6 +149,21 @@ Future<void> measureCustomPaper(CustomPaper c) async {
   }
 }
 
+/// How the library is ordered. The dates start newest first, the names A to Z.
+enum SortBy {
+  opened('Okuma tarihi'),
+  added('Eklenme tarihi'),
+  published('Yayım tarihi'),
+  title('Kitap adı'),
+  author('Yazar'),
+  publisher('Yayınevi'),
+  category('Kategori');
+
+  const SortBy(this.label);
+  final String label;
+  bool get newestFirst => index < 3;
+}
+
 class Settings extends ChangeNotifier {
   PaperTheme theme = PaperTheme.paper;
   bool dark = false;
@@ -174,7 +189,8 @@ class Settings extends ChangeNotifier {
   String uiLanguage = 'system';
   bool ttsEnabled = true;
   bool onlineLookup = true;
-  bool groupByCategory = false;
+  SortBy sortBy = SortBy.opened;
+  bool sortDescending = true;
   VoiceSource voiceSource = VoiceSource.system;
   String? ttsModelId;
   int ttsVoice = 0;
@@ -260,7 +276,8 @@ class Settings extends ChangeNotifier {
       uiLanguage = j['uiLanguage'] as String? ?? 'system';
       ttsEnabled = j['ttsEnabled'] as bool? ?? true;
       onlineLookup = j['onlineLookup'] as bool? ?? true;
-      groupByCategory = j['groupByCategory'] as bool? ?? false;
+      sortBy = SortBy.values.asNameMap()[j['sortBy']] ?? (j['groupByCategory'] == true ? SortBy.category : SortBy.opened);
+      sortDescending = j['sortDescending'] as bool? ?? sortBy.newestFirst;
       voiceSource = VoiceSource.values.byName(j['voiceSource'] as String? ?? 'system');
       ttsModelId = j['ttsModelId'] as String?;
       ttsVoice = j['ttsVoice'] as int? ?? 0;
@@ -310,7 +327,8 @@ class Settings extends ChangeNotifier {
       'uiLanguage': uiLanguage,
       'ttsEnabled': ttsEnabled,
       'onlineLookup': onlineLookup,
-      'groupByCategory': groupByCategory,
+      'sortBy': sortBy.name,
+      'sortDescending': sortDescending,
       'voiceSource': voiceSource.name,
       'ttsModelId': ttsModelId,
       'ttsVoice': ttsVoice,

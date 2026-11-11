@@ -16,7 +16,7 @@ class ParsedBook extends TextSource {
   Future<Uint8List?> coverBytes() async => _cover;
 }
 
-String _decodeWith(String? name, Uint8List bytes) {
+String decodeWith(String? name, Uint8List bytes) {
   final n = name?.toLowerCase().replaceAll('_', '-');
   if (n == 'windows-1251' || n == 'cp1251') return decodeCp1251(bytes);
   if (n == 'windows-1252' || n == 'cp1252' || n == 'iso-8859-1' || n == 'latin1') return latin1.decode(bytes);
@@ -170,7 +170,7 @@ ParsedBook parseMobi(Uint8List d, String fallbackTitle) {
 
 ParsedBook parseFb2(Uint8List bytes, String fallbackTitle) {
   final head = latin1.decode(bytes.sublist(0, bytes.length < 200 ? bytes.length : 200));
-  final doc = XmlDocument.parse(_decodeWith(RegExp(r'encoding="([^"]+)"').firstMatch(head)?[1], bytes));
+  final doc = XmlDocument.parse(decodeWith(RegExp(r'encoding="([^"]+)"').firstMatch(head)?[1], bytes));
   final binaries = <String, Uint8List>{};
   for (final b in doc.descendantElements.where((e) => e.localName == 'binary')) {
     try {
@@ -301,7 +301,7 @@ ParsedBook parseOdt(Uint8List bytes, String title) {
 
 ParsedBook parseHtml(Uint8List bytes, String title) {
   final head = latin1.decode(bytes.sublist(0, bytes.length < 1024 ? bytes.length : 1024));
-  final doc = html.parse(_decodeWith(RegExp(r'charset="?([\w-]+)', caseSensitive: false).firstMatch(head)?[1], bytes));
+  final doc = html.parse(decodeWith(RegExp(r'charset="?([\w-]+)', caseSensitive: false).firstMatch(head)?[1], bytes));
   final blocks = <Block>[];
   if (doc.body != null) walkHtml(doc.body!, blocks, (_) => null);
   final t = doc.querySelector('title')?.text.trim();

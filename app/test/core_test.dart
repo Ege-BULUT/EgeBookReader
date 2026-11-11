@@ -9,9 +9,13 @@ import 'package:archive/archive.dart';
 import 'package:egebookreader/colorize.dart';
 import 'package:egebookreader/curl.dart';
 import 'package:egebookreader/formats.dart';
+import 'package:egebookreader/library_sheets.dart';
+import 'package:egebookreader/main.dart' show Book;
+import 'package:egebookreader/meta.dart';
 import 'package:egebookreader/settings.dart';
 import 'package:egebookreader/shelf.dart';
 import 'package:egebookreader/tts.dart';
+import 'package:egebookreader/viewer.dart';
 import 'package:egebookreader/zones.dart';
 import 'package:egebookreader/sources.dart';
 import 'package:flutter/material.dart';
@@ -310,6 +314,44 @@ void main() {
       expect(tagsFrom([...pride, 'fiction']), ['Fiction', 'Love stories', 'History']);
     });
 
+    test('a book file says who wrote it, when, and what about', () async {
+      final dir = Directory.systemTemp.createTempSync('meta');
+      final opf = '''<package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata>
+        <dc:title>Dune</dc:title><dc:creator>Frank Herbert</dc:creator><dc:publisher>Chilton</dc:publisher>
+        <dc:date>1965-08-01</dc:date><dc:language>en</dc:language><dc:identifier>urn:isbn:978-0-441-17271-9</dc:identifier>
+        <dc:subject>Science fiction</dc:subject><dc:description>&lt;p&gt;A desert planet.&lt;/p&gt;</dc:description>
+        <meta name="calibre:series" content="Dune"/></metadata></package>''';
+      final zip = Archive()
+        ..addFile(ArchiveFile.string('META-INF/container.xml', '<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>'))
+        ..addFile(ArchiveFile.string('OEBPS/content.opf', opf));
+      final epub = File('${dir.path}/dune.epub')..writeAsBytesSync(ZipEncoder().encode(zip));
+      final m = await readMeta(epub.path);
+      expect(m.fields, {
+        'title': 'Dune', 'author': 'Frank Herbert', 'publisher': 'Chilton', 'date': '1965-08-01', 'language': 'en',
+        'isbn': '9780441172719', 'description': 'A desert planet.', 'series': 'Dune',
+      });
+      expect(m.subjects, ['Science fiction']);
+      final md = File('${dir.path}/n.md')..writeAsStringSync('---\ntitle: "Notlar"\nauthor: Ege\ntags: [a, b]\n---\n# x');
+      final n = await readMeta(md.path);
+      expect(n.fields, {'title': 'Notlar', 'author': 'Ege'});
+      expect(n.subjects, ['a', 'b']);
+      expect(yearOf('D:20010504'), 2001);
+      dir.deleteSync(recursive: true);
+    });
+
+    test('sorting: a second tap turns the order round, and books missing the fact go last', () {
+      Book book(String title, {String? author, int opened = 0}) => Book('/$title.epub', title, null)
+        ..opened = opened
+        ..info.addAll({'author': ?author});
+      final books = [book('b', author: 'Zed', opened: 1), book('a', opened: 3), book('c', author: 'Ann', opened: 2)];
+      List<String> titles(SortBy by, bool descending) => sortBooks(books, by, descending).map((b) => b.title).toList();
+      expect(titles(SortBy.opened, true), ['a', 'c', 'b']);
+      expect(titles(SortBy.opened, false), ['b', 'c', 'a']);
+      expect(titles(SortBy.title, false), ['a', 'b', 'c']);
+      expect(titles(SortBy.author, false), ['c', 'b', 'a']);
+      expect(titles(SortBy.author, true), ['b', 'c', 'a']);
+    });
+
     test('RTF text, Turkish code page and unicode escapes', () {
       final b = parseRtf(Uint8List.fromList(latin1.encode(r"{\rtf1\ansi\ansicpg1254{\fonttbl{\f0 Arial;}}\f0 Ka\'f0\'fdt\par ikinci \u351? son}")), 't');
       expect((b.blocks[0] as TextBlock).inlines.single.text, 'Kağıt');
@@ -417,5 +459,24 @@ void main() {
       await tester.pump();
       expect(turned, isEmpty);
     });
+  });
+
+  testWidgets('a picture in the gallery opens its book at its page, once the reader says so', (tester) async {
+    var opened = 0;
+    final item = ViewerItem(id: 'x', title: 'Kitap', pageNumber: 7, original: () async => null, openPage: () => opened++);
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(builder: (context) => TextButton(onPressed: () => confirmOpenPage(context, item), child: const Text('go'))),
+    ));
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Kitap ·'), findsOneWidget);
+    await tester.tap(find.byType(TextButton).at(1)); // Cancel
+    await tester.pumpAndSettle();
+    expect(opened, 0);
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(TextButton).last); // Open
+    await tester.pumpAndSettle();
+    expect(opened, 1);
   });
 }

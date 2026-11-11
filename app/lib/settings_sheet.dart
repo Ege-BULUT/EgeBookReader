@@ -83,14 +83,13 @@ class _SettingsSheetState extends State<SettingsSheet> {
     final s = settings;
     return [
       Heading('Kitaplık'),
-      Toggle('Kategorilere ayır', s.groupByCategory, (v) => s.update((x) => x.groupByCategory = v)),
       Toggle('Kategori ve etiketleri internetten bul', s.onlineLookup, (v) {
         s.update((x) => x.onlineLookup = v);
-        if (v) library.lookUpMissing();
+        if (v) library.fillIn();
       }),
       Padding(
         padding: const EdgeInsets.only(top: 4),
-        child: Text(tr('Yalnızca kitabın adı Open Library\'ye gönderilir.'), style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
+        child: Text(tr('Yalnızca aranacak metin (kitabın adı ve yazarı) Open Library\'ye gönderilir.'), style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
       ),
     ];
   }

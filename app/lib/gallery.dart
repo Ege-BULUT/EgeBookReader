@@ -5,7 +5,8 @@ import 'package:flutter/services.dart';
 
 import 'colorize.dart';
 import 'l10n.dart';
-import 'main.dart' show settings;
+import 'main.dart' show Book, library, settings;
+import 'reader.dart';
 import 'viewer.dart';
 
 /// Every picture the app has coloured, kept automatically.
@@ -53,7 +54,17 @@ class _GalleryScreenState extends State<GalleryScreen> {
   void _open(List<String> ids, int i) {
     final items = [
       for (final id in ids)
-        ViewerItem(id: id, title: colorizer.titleOf(id), pageNumber: colorizer.pageOf(id), original: () => colorizer.originalBytes(id)),
+        ViewerItem(
+          id: id,
+          title: colorizer.titleOf(id),
+          pageNumber: colorizer.pageOf(id),
+          original: () => colorizer.originalBytes(id),
+          bookPath: colorizer.pathOf(id),
+          openPage: switch ((_bookOf(id), colorizer.pageOf(id))) {
+            (final Book book, final int page) => () => _openAt(book, page),
+            _ => null,
+          },
+        ),
     ];
     Navigator.of(context).push(PageRouteBuilder<void>(
       opaque: false,
@@ -62,6 +73,21 @@ class _GalleryScreenState extends State<GalleryScreen> {
       pageBuilder: (_, _, _) => PhotoViewer(items: items, initial: i, dim: 1),
     ));
   }
+
+  /// Closes the picture and opens its book at its page; back from the book comes back to the gallery.
+  void _openAt(Book book, int page) {
+    final navigator = Navigator.of(context)..pop();
+    book.opened = DateTime.now().millisecondsSinceEpoch;
+    navigator
+        .push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(book: book, coverRect: () => null, startPage: page - 1)))
+        .then((_) => library.moveToFront(book));
+  }
+}
+
+/// The library book a picture came from: by its file, or by its title for pictures coloured before 0.1.7.
+Book? _bookOf(String id) {
+  final path = colorizer.pathOf(id);
+  return library.books.where((b) => path != null ? b.path == path : b.title == colorizer.titleOf(id)).firstOrNull;
 }
 
 class _Tile extends StatelessWidget {

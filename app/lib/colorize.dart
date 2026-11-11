@@ -154,6 +154,9 @@ class Colorizer extends ChangeNotifier {
 
   String titleOf(String id) => _origins[id]?['title'] as String? ?? tr('Renklendirilmiş görsel');
   int? pageOf(String id) => _origins[id]?['page'] as int?;
+
+  /// The book the picture came from; pictures coloured before 0.1.7 only know its title.
+  String? pathOf(String id) => _origins[id]?['path'] as String?;
   String captionOf(String id) => pageOf(id) == null ? titleOf(id) : '${titleOf(id)} · ${tr('Sayfa')} ${pageOf(id)}';
 
   /// Raise the suffix when the model or the merge changes, so old results are made again.
@@ -222,8 +225,8 @@ class Colorizer extends ChangeNotifier {
   }
 
   /// [front] puts the picture ahead of everything waiting; a person tapped it.
-  void enqueue(PageImage image, {bool front = false, bool rest = true, String? title, int? pageNumber}) {
-    if (title != null) _origins[image.id] = {'title': title, 'page': pageNumber};
+  void enqueue(PageImage image, {bool front = false, bool rest = true, String? title, int? pageNumber, String? path}) {
+    if (title != null) _origins[image.id] = {'title': title, 'page': pageNumber, 'path': ?path ?? _origins[image.id]?['path']};
     final state = stateOf(image.id);
     if (!modelReady || state == JobState.done || state == JobState.skipped || state == JobState.running) return;
     if (state == JobState.waiting) {

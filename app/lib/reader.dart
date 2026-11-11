@@ -21,8 +21,11 @@ import 'viewer.dart';
 const _volume = MethodChannel('egebookreader/volume');
 
 class ReaderScreen extends StatefulWidget {
-  const ReaderScreen({super.key, required this.book, required this.coverRect});
+  const ReaderScreen({super.key, required this.book, required this.coverRect, this.startPage});
   final Book book;
+
+  /// Opens at this page (from 0) instead of where reading stopped.
+  final int? startPage;
 
   /// Where the book's cover is on the library screen, for the opening and closing motion.
   final Rect? Function() coverRect;
@@ -62,6 +65,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   final _scroll = ScrollController();
 
   int _page = 0;
+  late int? _startPage = widget.startPage;
   bool _menu = false;
   bool _ready = false;
   double _layoutProgress = 0;
@@ -238,7 +242,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       }
     }
     for (final image in first) {
-      colorizer.enqueue(image, rest: false, title: widget.book.title, pageNumber: _pageOfImage(image));
+      colorizer.enqueue(image, rest: false, path: widget.book.path, title: widget.book.title, pageNumber: _pageOfImage(image));
     }
     if (firstVisit) await colorizer.whenIdle(first.map((i) => i.id));
     widget.book.colorizeStarted = true;
@@ -246,7 +250,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     unawaited(() async {
       for (var i = next; i < _count && mounted; i++) {
         for (final image in await source.imagesOn(i, _sizeOf(i))) {
-          colorizer.enqueue(image, title: widget.book.title, pageNumber: i + 1);
+          colorizer.enqueue(image, path: widget.book.path, title: widget.book.title, pageNumber: i + 1);
         }
       }
     }());
@@ -389,7 +393,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
         if (mounted && generation == _generation) setState(() => _layoutProgress = v);
       });
       if (!mounted || generation != _generation) return;
-      _page = _align((fraction * _count).round().clamp(0, max(0, _count - 1)).toInt());
+      final start = _startPage;
+      _startPage = null;
+      _page = _align((start ?? (fraction * _count).round()).clamp(0, max(0, _count - 1)).toInt());
       final sizes = _source!.pageSizes;
       final strip = sizes != null && sizes.where((s) => s.height > s.width * 2).length * 2 > sizes.length;
       if (strip != _strip) {
@@ -684,7 +690,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
           origin: () => image.rect.shift(shift),
           items: [
             for (final img in images)
-              ViewerItem(id: img.id, title: widget.book.title, pageNumber: index + 1, page: img, original: img.bytes),
+              ViewerItem(id: img.id, title: widget.book.title, pageNumber: index + 1, page: img, original: img.bytes, bookPath: widget.book.path),
           ],
         ),
       ));
@@ -1107,7 +1113,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                 if (state == JobState.done) {
                   colorizer.setShowsColor(image.id, !colorizer.showsColor(image.id));
                 } else {
-                  colorizer.enqueue(image, front: true, rest: false, title: widget.book.title, pageNumber: index + 1);
+                  colorizer.enqueue(image, front: true, rest: false, path: widget.book.path, title: widget.book.title, pageNumber: index + 1);
                 }
               },
               child: Container(

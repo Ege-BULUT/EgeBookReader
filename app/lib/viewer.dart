@@ -10,12 +10,16 @@ import 'main.dart' show settings;
 
 /// One picture the viewer can show, in colour and as it was.
 class ViewerItem {
-  ViewerItem({required this.id, required this.title, required this.pageNumber, required this.original, this.page});
+  ViewerItem({required this.id, required this.title, required this.pageNumber, required this.original, this.page, this.bookPath, this.openPage});
   final String id;
   final String title;
   final int? pageNumber;
   String get caption => pageNumber == null ? title : '$title · ${tr('Sayfa')} $pageNumber';
   final Future<Uint8List?> Function() original;
+  final String? bookPath;
+
+  /// Opens the book at the picture's page; null where that makes no sense (inside the same book).
+  final VoidCallback? openPage;
 
   /// Enough to colour it from here, when the picture comes from an open book.
   final PageImage? page;
@@ -146,7 +150,7 @@ class _PhotoViewerState extends State<PhotoViewer> with SingleTickerProviderStat
                 TextButton.icon(
                   onPressed: state == JobState.waiting || state == JobState.running
                       ? null
-                      : () => colorizer.enqueue(item.page!, front: true, rest: false, title: item.title, pageNumber: item.pageNumber),
+                      : () => colorizer.enqueue(item.page!, front: true, rest: false, title: item.title, pageNumber: item.pageNumber, path: item.bookPath),
                   style: TextButton.styleFrom(foregroundColor: Colors.white),
                   icon: state == JobState.waiting || state == JobState.running
                       ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
@@ -163,10 +167,20 @@ class _PhotoViewerState extends State<PhotoViewer> with SingleTickerProviderStat
             top: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
-              child: Text(
-                showArrows ? '${item.caption}   ${_index + 1} / ${widget.items.length}' : item.caption,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.3),
+              child: GestureDetector(
+                onTap: item.openPage == null ? null : () => confirmOpenPage(context, item),
+                child: Text.rich(
+                  TextSpan(children: [
+                    TextSpan(text: showArrows ? '${item.caption}   ${_index + 1} / ${widget.items.length}' : item.caption),
+                    if (item.openPage != null)
+                      const WidgetSpan(
+                        alignment: PlaceholderAlignment.middle,
+                        child: Padding(padding: EdgeInsets.only(left: 6), child: Icon(Icons.open_in_new, size: 15, color: Colors.white70)),
+                      ),
+                  ]),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.3),
+                ),
               ),
             ),
           ),
@@ -349,4 +363,22 @@ class _ZoomPictureState extends State<_ZoomPicture> {
       },
     );
   }
+}
+
+/// Asks before leaving the picture for its book, then opens the book at its page.
+Future<void> confirmOpenPage(BuildContext context, ViewerItem item) async {
+  final c = settings.palette;
+  final open = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: c.paper,
+      title: Text(tr('Sayfayı aç'), style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 20)),
+      content: Text('${item.title} · ${tr('Sayfa')} ${item.pageNumber}', style: TextStyle(color: c.ink, fontSize: 15)),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(tr('Vazgeç'))),
+        TextButton(onPressed: () => Navigator.pop(context, true), child: Text(tr('Aç'))),
+      ],
+    ),
+  );
+  if (open == true) item.openPage!();
 }

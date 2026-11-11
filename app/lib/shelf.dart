@@ -1,8 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'meta.dart';
+
 /// Categories a book can be filed under, in the order the library shows them. The names are keys for tr().
 const categories = ['Çizgi roman', 'Roman', 'Bilim kurgu', 'Fantastik', 'Polisiye', 'Çocuk', 'Şiir', 'Biyografi', 'Tarih', 'Felsefe', 'Bilim', 'Diğer'];
+
+/// Each category's place in [categories].
+final categoriesOrder = {for (final (i, c) in categories.indexed) c: i};
 
 const comicExtensions = {'.cbz', '.cbt', '.cbr', '.cb7'};
 
@@ -47,22 +52,35 @@ List<String> tagsFrom(Iterable<String> subjects) {
   ].take(5).toList();
 }
 
-/// Open Library's subjects for the book called [title]: empty when it is not known, null when it could not be asked.
-/// Only the title is sent.
-Future<List<String>?> lookUpSubjects(String title) async {
+/// What Open Library knows about the book [query] names (a title, perhaps with its author): empty when it is not
+/// known, null when it could not be asked. Only [query] is sent.
+Future<BookMeta?> lookUpOnline(String query) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
   try {
-    final request = await client.getUrl(Uri.https('openlibrary.org', '/search.json', {'q': title, 'fields': 'subject', 'limit': '1'}));
+    final uri = Uri.https('openlibrary.org', '/search.json',
+        {'q': query, 'fields': 'title,author_name,publisher,first_publish_year,language,isbn,subject', 'limit': '1'});
+    final request = await client.getUrl(uri);
     request.headers.set(HttpHeaders.userAgentHeader, 'EgeBookReader (egebulut.iletisim@outlook.com)');
     final response = await request.close().timeout(const Duration(seconds: 20));
     if (response.statusCode != 200) return null;
     final json = jsonDecode(await response.transform(utf8.decoder).join()) as Map<String, dynamic>;
     final docs = json['docs'] as List<dynamic>? ?? const [];
-    if (docs.isEmpty) return const [];
-    return ((docs.first as Map<String, dynamic>)['subject'] as List<dynamic>? ?? const []).cast<String>();
+    return docs.isEmpty ? BookMeta() : metaFromOpenLibrary(docs.first as Map<String, dynamic>);
   } catch (_) {
     return null;
   } finally {
     client.close();
   }
+}
+
+BookMeta metaFromOpenLibrary(Map<String, dynamic> doc) {
+  List<String> list(String key) => ((doc[key] as List<dynamic>?) ?? const []).map((e) => '$e').toList();
+  return BookMeta()
+    ..put('title', doc['title'] as String?)
+    ..put('author', list('author_name').take(3).join(', '))
+    ..put('publisher', list('publisher').firstOrNull)
+    ..put('date', doc['first_publish_year']?.toString())
+    ..put('language', list('language').firstOrNull)
+    ..put('isbn', list('isbn').where((i) => i.length == 13).firstOrNull ?? list('isbn').firstOrNull)
+    ..addSubjects(list('subject'));
 }

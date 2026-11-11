@@ -2,7 +2,7 @@
 
 ## Done on Android
 
-Reader, page turning, themes, typography, actual book mode, image filters, colorization, read aloud, picture viewer, and all common formats.
+Reader, page turning, themes, typography, actual book mode, image filters, colorization, read aloud, picture viewer, all common formats, right-to-left reading, the webtoon strip, and a library with favourites, lists, categories, tags, sorting, filters and book details (0.1.7).
 
 ## Next
 
