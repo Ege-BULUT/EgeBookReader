@@ -129,3 +129,8 @@ that names the old one.
 - Speed slider 0.5x to 3x in 0.1 steps, default 1.0, below the voice choice. Supertonic follows it exactly (0.5x, 1x, 3x gave 10.81, 5.40, 1.80 s for one sentence).
 - 0.1.1 was released on GitHub as a prerelease at the user's request; the site still serves 0.1.0-era files until the user asks for a deploy.
 - Released on GitHub as a prerelease (v0.1.2) at the user's request; the site was not updated.
+
+## 2026-11-11 D16 CB7
+
+- CB7 opens through libarchive's 7z reader, the same path as CBR (unpacked once to a cache folder). liblzma from xz 5.8.1 (0BSD) is built static and linked in for LZMA and LZMA2, the usual 7z methods; Deflate uses the system zlib.
+- Checked on the emulator with three files made by bsdtar (LZMA2, LZMA, Deflate): all three import with their cover and open with all 6 pages. Not checked: BCJ2 filter archives, solid archives with many pages on a slow phone, encrypted 7z (refused like a password-protected CBR).

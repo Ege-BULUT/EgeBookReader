@@ -178,8 +178,8 @@ Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
       return EpubSource.parse(await File(path).readAsBytes(), _titleOf(path));
     case '.cbz' || '.cbt':
       return CbzSource.parse(await File(path).readAsBytes(), _titleOf(path), tar: path.toLowerCase().endsWith('.cbt'));
-    case '.cbr':
-      return ImageFolderSource.fromRar(path, _titleOf(path));
+    case '.cbr' || '.cb7':
+      return ImageFolderSource.unpack(path, _titleOf(path));
     case '.mobi' || '.azw' || '.azw3' || '.prc':
       return parseMobi(await File(path).readAsBytes(), _titleOf(path));
     case '.fb2':
@@ -204,7 +204,7 @@ Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
 }
 
 const supportedExtensions = {
-  '.pdf', '.epub', '.mobi', '.azw', '.azw3', '.prc', '.fb2', '.fbz', '.cbz', '.cbt', '.cbr', '.txt', '.docx', '.odt', '.html', '.htm', '.xhtml', '.md', '.markdown', '.rtf',
+  '.pdf', '.epub', '.mobi', '.azw', '.azw3', '.prc', '.fb2', '.fbz', '.cbz', '.cbt', '.cbr', '.cb7', '.txt', '.docx', '.odt', '.html', '.htm', '.xhtml', '.md', '.markdown', '.rtf',
 };
 
 String _titleOf(String path) => p.basenameWithoutExtension(path).replaceAll('_', ' ');
@@ -988,21 +988,21 @@ class CbzSource extends PageSource {
   }
 }
 
-/// A comic unpacked to a folder: RAR archives can only be read from start to end, so pages cannot be fetched one by one.
+/// A comic unpacked to a folder: RAR and 7z archives can only be read from start to end, so pages cannot be fetched one by one.
 class ImageFolderSource extends PageSource {
   ImageFolderSource._(this.title, this._files);
   @override
   final String title;
   final List<File> _files;
 
-  static Future<ImageFolderSource> fromRar(String path, String title) async {
+  static Future<ImageFolderSource> unpack(String path, String title) async {
     final base = await getApplicationCacheDirectory();
     final folder = Directory(p.join(base.path, 'comics', p.basename(path).hashCode.toRadixString(36)));
     final done = File(p.join(folder.path, '.done'));
     if (!done.existsSync()) {
       if (folder.existsSync()) await folder.delete(recursive: true);
       await folder.create(recursive: true);
-      await extractRar(path, folder.path);
+      await extractArchive(path, folder.path);
       await done.create();
     }
     final files = folder.listSync().whereType<File>().where((f) => _isPicture(f.path)).toList()
