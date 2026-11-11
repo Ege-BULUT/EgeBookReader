@@ -14,10 +14,10 @@ List<Book> sortBooks(List<Book> books, SortBy by, bool descending) {
         SortBy.opened => b.opened == 0 ? null : b.opened,
         SortBy.added => b.added == 0 ? null : b.added,
         SortBy.published => yearOf(b.info['date']),
-        SortBy.title => b.title.toLowerCase(),
-        SortBy.author => b.info['author']?.toLowerCase(),
-        SortBy.publisher => b.info['publisher']?.toLowerCase(),
-        SortBy.category => tr(b.shelves.first).toLowerCase(),
+        SortBy.title => sortKey(b.title),
+        SortBy.author => b.info['author'] == null ? null : sortKey(b.info['author']!),
+        SortBy.publisher => b.info['publisher'] == null ? null : sortKey(b.info['publisher']!),
+        SortBy.category => sortKey(tr(b.shelves.first)),
       };
   final keyed = [for (final (i, b) in books.indexed) (i, b, key(b))];
   keyed.sort((x, y) {

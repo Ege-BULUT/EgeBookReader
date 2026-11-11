@@ -1288,24 +1288,32 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     final value = _page.clamp(0, total - 1).toDouble();
     return LayoutBuilder(builder: (context, box) {
       const thumb = 7.0;
-      final x = thumb + (box.maxWidth - thumb * 2) * value / max(total - 1, 1);
+      // Right to left, the bar runs from the right edge, as the pages do.
+      final rtl = widget.book.rtl;
+      final along = thumb + (box.maxWidth - thumb * 2) * value / max(total - 1, 1);
+      final x = rtl ? box.maxWidth - along : along;
       return Stack(clipBehavior: Clip.none, alignment: Alignment.centerLeft, children: [
         Positioned.fill(
-          child: IgnorePointer(child: CustomPaint(painter: _TickPainter(widget.book.bookmarks, c.accent, thumb))),
+          child: IgnorePointer(
+            child: Transform.flip(flipX: rtl, child: CustomPaint(painter: _TickPainter(widget.book.bookmarks, c.accent, thumb))),
+          ),
         ),
-        Slider(
-          value: value,
-          max: (total - 1).toDouble(),
-          onChangeStart: (_) => setState(() => _scrubbing = true),
-          onChanged: (v) {
-            final next = _align(v.round());
-            if (next != _page) HapticFeedback.selectionClick();
-            setState(() => _page = next);
-          },
-          onChangeEnd: (v) {
-            setState(() => _scrubbing = false);
-            _seek(v.round());
-          },
+        Directionality(
+          textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
+          child: Slider(
+            value: value,
+            max: (total - 1).toDouble(),
+            onChangeStart: (_) => setState(() => _scrubbing = true),
+            onChanged: (v) {
+              final next = _align(v.round());
+              if (next != _page) HapticFeedback.selectionClick();
+              setState(() => _page = next);
+            },
+            onChangeEnd: (v) {
+              setState(() => _scrubbing = false);
+              _seek(v.round());
+            },
+          ),
         ),
         Positioned(
           left: x - 34,

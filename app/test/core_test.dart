@@ -10,7 +10,7 @@ import 'package:egebookreader/colorize.dart';
 import 'package:egebookreader/curl.dart';
 import 'package:egebookreader/formats.dart';
 import 'package:egebookreader/library_sheets.dart';
-import 'package:egebookreader/main.dart' show Book;
+import 'package:egebookreader/main.dart' show Book, sameFile;
 import 'package:egebookreader/meta.dart';
 import 'package:egebookreader/settings.dart';
 import 'package:egebookreader/shelf.dart';
@@ -350,6 +350,24 @@ void main() {
       expect(titles(SortBy.title, false), ['a', 'b', 'c']);
       expect(titles(SortBy.author, false), ['c', 'b', 'a']);
       expect(titles(SortBy.author, true), ['b', 'c', 'a']);
+    });
+
+    test('Turkish order and search: Ç after C, İ and I apart, accents found without typing them', () {
+      final names = ['Zeytin', 'Çiçek', 'Cam', 'Ilık', 'İnce', 'şeker', 'Sabah', 'Éclair', 'Dağ', '9 Kapı'];
+      names.sort((a, b) => sortKey(a).compareTo(sortKey(b)));
+      expect(names, ['9 Kapı', 'Cam', 'Çiçek', 'Dağ', 'Éclair', 'Ilık', 'İnce', 'Sabah', 'şeker', 'Zeytin']);
+      expect(foldForSearch('İSTANBUL Şef Ölçü'), 'istanbul sef olcu');
+      expect(foldForSearch('ILIK'), 'ilik');
+    });
+
+    test('the same file is recognised, a different one with the same name is not', () async {
+      final dir = Directory.systemTemp.createTempSync('same');
+      final a = File('${dir.path}/a')..writeAsBytesSync(List.generate(3 << 20, (i) => i % 251));
+      final b = File('${dir.path}/b')..writeAsBytesSync(a.readAsBytesSync());
+      final c = File('${dir.path}/c')..writeAsBytesSync([...a.readAsBytesSync()]..[(3 << 20) - 5] ^= 1);
+      expect(await sameFile(a, b), isTrue);
+      expect(await sameFile(a, c), isFalse);
+      dir.deleteSync(recursive: true);
     });
 
     test('RTF text, Turkish code page and unicode escapes', () {

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
+import 'backup.dart';
 import 'colorize.dart';
 import 'fonts.dart';
 import 'l10n.dart';
@@ -29,6 +30,48 @@ class SettingsSheet extends StatefulWidget {
 
 class _SettingsSheetState extends State<SettingsSheet> {
   late int _tab = widget.initialTab;
+  bool _backupBusy = false;
+  String? _backupNote;
+
+  Future<void> _backup() async {
+    setState(() => _backupBusy = true);
+    String note;
+    try {
+      final file = await writeBackup();
+      final saved = await saveBackupAs(file);
+      await file.delete();
+      note = saved ? 'Yedek kaydedildi.' : 'Yedek kaydedilmedi.';
+    } catch (e) {
+      note = 'Yedek alınamadı.';
+    }
+    if (mounted) {
+      setState(() {
+        _backupBusy = false;
+        _backupNote = tr(note);
+      });
+    }
+  }
+
+  Future<void> _restore() async {
+    final path = (await FilePicker.pickFiles()).firstOrNull?.path;
+    if (path == null) return;
+    setState(() => _backupBusy = true);
+    String note;
+    try {
+      final added = await restoreBackup(path);
+      note = '${tr('Yedekten eklenen kitap')}: $added';
+    } on FormatException catch (e) {
+      note = tr(e.message);
+    } catch (e) {
+      note = tr('Yedek okunamadı.');
+    }
+    if (mounted) {
+      setState(() {
+        _backupBusy = false;
+        _backupNote = note;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -91,6 +134,16 @@ class _SettingsSheetState extends State<SettingsSheet> {
         padding: const EdgeInsets.only(top: 4),
         child: Text(tr('Yalnızca aranacak metin (kitabın adı ve yazarı) Open Library\'ye gönderilir.'), style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
       ),
+      Heading('Yedek'),
+      Text(tr('Kitaplar, ilerleme, yer imleri, etiketler, listeler ve kapaklar tek dosyada. Geri yüklerken kitaplıkta olanlar olduğu gibi kalır, eksikler eklenir.'),
+          style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
+      const SizedBox(height: 8),
+      Row(children: [
+        TextButton(onPressed: _backupBusy ? null : _backup, child: Text(tr('Yedek al'))),
+        TextButton(onPressed: _backupBusy ? null : _restore, child: Text(tr('Yedekten geri yükle'))),
+        if (_backupBusy) SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2, color: s.palette.accent)),
+      ]),
+      if (_backupNote != null) Text(_backupNote!, style: TextStyle(color: s.palette.ink, fontSize: 13)),
     ];
   }
 

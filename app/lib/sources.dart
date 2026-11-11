@@ -1063,8 +1063,10 @@ Future<Size> _measure(Uint8List bytes) async {
   return size;
 }
 
-/// Where a RAR or 7z comic is unpacked.
-Future<Directory> comicFolder(String path) async =>
-    Directory(p.join((await getApplicationCacheDirectory()).path, 'comics', p.basename(path).hashCode.toRadixString(36)));
+/// Where a RAR or 7z comic is unpacked: one folder per file and size, so two archives with one name never share it.
+Future<Directory> comicFolder(String path) async {
+  final size = File(path).existsSync() ? File(path).lengthSync() : 0;
+  return Directory(p.join((await getApplicationCacheDirectory()).path, 'comics', '$path:$size'.hashCode.toRadixString(36)));
+}
 
 bool _isPicture(String name) => RegExp(r'\.(jpe?g|png|webp|gif|bmp)$', caseSensitive: false).hasMatch(name);

@@ -298,11 +298,14 @@ class _PressableState extends State<Pressable> {
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, box) {
       return Listener(
+        behavior: HitTestBehavior.opaque,
         onPointerDown: (e) => _pointer(e.localPosition, box.biggest),
         onPointerMove: (e) => _pointer(e.localPosition, box.biggest),
         onPointerUp: (_) => _release(),
         onPointerCancel: (_) => _release(),
         child: GestureDetector(
+          // The whole box is the button, gaps between its texts too.
+          behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
           onLongPress: widget.onLongPress,
           child: TweenAnimationBuilder<Offset>(

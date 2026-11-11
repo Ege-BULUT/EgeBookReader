@@ -84,3 +84,23 @@ BookMeta metaFromOpenLibrary(Map<String, dynamic> doc) {
     ..put('isbn', list('isbn').where((i) => i.length == 13).firstOrNull ?? list('isbn').firstOrNull)
     ..addSubjects(list('subject'));
 }
+
+const _alphabet = 'aâbcçdefgğhıiîjklmnoöpqrsştuüûvwxyz';
+const _plain = {'á': 'a', 'à': 'a', 'ä': 'a', 'ã': 'a', 'å': 'a', 'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e', 'í': 'i', 'ì': 'i', 'ï': 'i', 'ó': 'o', 'ò': 'o', 'ô': 'o', 'õ': 'o', 'ú': 'u', 'ù': 'u', 'ñ': 'n', 'ß': 's', 'ÿ': 'y'};
+
+/// Lower case as Turkish writes it: I becomes ı and İ becomes i.
+String turkishLower(String s) => s.replaceAll('I', 'ı').replaceAll('İ', 'i').toLowerCase();
+
+/// A key that puts names in Turkish alphabetical order (c, ç, d … s, ş, t …), other accented letters next to their plain
+/// letter, and digits and signs before letters.
+// ponytail: one alphabet for every language; per-language collation (ICU) if readers ask for it.
+String sortKey(String s) => String.fromCharCodes(turkishLower(s).split('').map((ch) {
+      final i = _alphabet.indexOf(_plain[ch] ?? ch);
+      return i >= 0 ? 0x1000 + i * 2 + (_plain.containsKey(ch) ? 1 : 0) : ch.codeUnitAt(0);
+    }));
+
+/// Text folded for search: Turkish lower case with accents dropped, so "sef" finds "Şef" and "istanbul" finds "İstanbul".
+String foldForSearch(String s) => turkishLower(s)
+    .split('')
+    .map((ch) => _plain[ch] ?? const {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u', 'â': 'a', 'î': 'i', 'û': 'u'}[ch] ?? ch)
+    .join();

@@ -17,7 +17,7 @@ Free, open source, no account and no ads.</p>
   <img alt="Android 7+" src="https://img.shields.io/badge/Android-7%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Flutter 3.47" src="https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter&logoColor=white">
   <img alt="Works offline" src="https://img.shields.io/badge/works-offline-7E3321">
-  <img alt="Version 0.1.7" src="https://img.shields.io/badge/version-0.1.7%20preview-F59E0B">
+  <img alt="Version 0.1.8" src="https://img.shields.io/badge/version-0.1.8%20preview-F59E0B">
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-2EA043"></a>
 </p>
 
@@ -36,7 +36,7 @@ Free, open source, no account and no ads.</p>
 </div>
 
 > [!NOTE]
-> **0.1.7 is a preview for Android.** It has been tested on an emulator and by its author on one phone. iOS, Windows, macOS and Linux will come from the same code later.
+> **0.1.8 is a preview for Android.** It has been tested on an emulator and by its author on one phone. iOS, Windows, macOS and Linux will come from the same code later.
 
 ## Why EgeBookReader
 
@@ -108,7 +108,10 @@ Done on the phone with the two downloadable models. Lines and lettering are unto
 ### Library
 
 - **Favourites, your own lists, categories and tags.** A book can sit in several categories and lists. Long-press a book to change any of them, or to set your own cover picture (and go back to the original).
-- **Sort and filter** from the bar above the shelf: by last read, date added, publication date (newest or oldest first), or title, author or publisher (A to Z or Z to A), or in sections by category. The filter sheet narrows by reading status, category, tag, format and language.
+- **Search** the shelf by title, author, publisher or tag; Turkish letters and accents match without typing them ("ornegi" finds "Örneği").
+- **Grid or list.** The list shows each book's cover, author and progress in one row.
+- **Backup** in Settings, Library: the whole library (books, progress, bookmarks, tags, lists, covers) in one file saved where you choose. Restoring adds what is missing and leaves what is already there.
+- **Sort and filter** from the bar above the shelf: by last read, date added, publication date (newest or oldest first), or title, author or publisher (A to Z or Z to A, in Turkish alphabetical order), or in sections by category. The filter sheet narrows by reading status, category, tag, format and language.
 - **Book details** are read from the file when a book is added: title, author, publisher, date, language, ISBN, series, description and subjects, from EPUB, PDF, MOBI/AZW3, FB2, DOCX, ODT, HTML, Markdown, RTF and ComicInfo.xml in comics. A manga that says it reads right to left opens that way.
 - **Find online** looks the book up on Open Library and suggests a category, tags and missing details. The search text starts as the title and author and can be edited, with a button to put it back. It runs by itself for new books unless switched off in Settings, Library; only the search text is sent.
 - **Details** shows what the library, the file and Open Library each say, side by side. Tick the values to keep, edit any with the pencil, and save them into the book.
@@ -118,7 +121,7 @@ Done on the phone with the two downloadable models. Lines and lettering are unto
 
 - **Flip** is the default. A cylinder curl drawn per pixel in a GPU shader, driven by where you grab the page. It settles with a spring and keeps the speed of your swipe.
 - **Tap zones.** Draw rectangles and circles on the screen and give each one a job: previous, next, menu, bookmark. Portrait and landscape have separate layouts.
-- **Right to left** for manga, set per book. The page lifts from the left edge, the left side of the screen turns forward, and two-page spreads read right to left.
+- **Right to left** for manga, set per book. The page lifts from the left edge, the left side of the screen turns forward, two-page spreads read right to left, and the page bar runs from the right.
 - **Webtoons** scroll as one long strip: a comic whose pages are mostly taller than twice their width always scrolls, fitted to the width with no gap. In Scroll mode every comic and DjVu page keeps its own shape.
 - **Endless vertical scroll**, with an adjustable gap between pages (2 px by default).
 - **Volume keys** turn pages in every mode, and can be inverted.

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
@@ -35,6 +37,7 @@ Future<void> main() async {
   await voices.load();
   await settings.load();
   await library.load();
+  AppLifecycleListener(onPause: library.flush, onDetach: library.flush);
   runApp(const EgeBookReaderApp());
 }
 
@@ -171,7 +174,18 @@ class Library extends ChangeNotifier {
     await save();
   }
 
+  Timer? _saving;
+
+  /// Writes the library a moment after the last change, so a burst of changes (page turns, tag taps) is one write.
   Future<void> save() async {
+    _saving?.cancel();
+    _saving = Timer(const Duration(milliseconds: 600), flush);
+  }
+
+  /// Writes the library now; called when the app goes to the background.
+  Future<void> flush() async {
+    _saving?.cancel();
+    _saving = null;
     await _index.writeAsString(jsonEncode(books));
     await _lists.writeAsString(jsonEncode(listNames));
   }
@@ -269,24 +283,37 @@ class Library extends ChangeNotifier {
     source.dispose();
   }
 
-  /// Copies a picked file into the app and adds it. Throws a [FormatException] the UI can show.
-  Future<void> import(String from) async {
+  /// Copies a picked file into the app and adds it; false when the very same file is already in the library.
+  /// A different file with the same name is kept under a new name, so no book is ever replaced.
+  /// Throws a [FormatException] the UI can show.
+  Future<bool> import(String from) async {
     final ext = p.extension(from).toLowerCase();
     if (!supportedExtensions.contains(ext)) throw FormatException('${tr('Bu biçim henüz desteklenmiyor')}: $ext');
-    final to = File(p.join(_dir.path, 'books', p.basename(from)));
+    final picked = File(from);
+    final stem = p.basenameWithoutExtension(from);
+    var to = File(p.join(_dir.path, 'books', p.basename(from)));
+    for (var n = 2; to.existsSync(); n++) {
+      if (await sameFile(picked, to) && books.any((b) => b.path == to.path)) return false;
+      to = File(p.join(_dir.path, 'books', '$stem ($n)$ext'));
+    }
     await to.create(recursive: true);
-    await File(from).copy(to.path);
-    books.removeWhere((b) => b.path == to.path);
+    await picked.copy(to.path);
     await _add(to.path);
     await save();
     notifyListeners();
     fillIn();
+    return true;
   }
 
+  /// Removes the book and everything kept for it: the file, its covers and an unpacked comic.
   Future<void> remove(Book b) async {
     books.remove(b);
     await clearCover(b, notify: false);
-    await File(b.path).delete().catchError((_) => File(b.path));
+    final unpacked = await comicFolder(b.path); // before the file goes: its size is part of the name
+    if (unpacked.existsSync()) await unpacked.delete(recursive: true);
+    for (final path in [b.path, ?b.coverPath]) {
+      await File(path).delete().catchError((_) => File(path));
+    }
     await save();
     notifyListeners();
   }
@@ -326,6 +353,21 @@ class Library extends ChangeNotifier {
     await file.writeAsBytes(png!.buffer.asUint8List());
     return file.path;
   }
+}
+
+/// Two files with the same size and the same first and last megabyte are taken to be one book.
+// ponytail: samples the ends instead of hashing everything; a full hash if two editions ever slip through.
+Future<bool> sameFile(File a, File b) async {
+  final size = await a.length();
+  if (size != await b.length()) return false;
+  Future<List<int>> part(File f, int start) async => (await f.openRead(start, min(size, start + (1 << 20))).toList()).expand((x) => x).toList();
+  for (final start in {0, max(0, size - (1 << 20))}) {
+    final x = await part(a, start), y = await part(b, start);
+    for (var i = 0; i < x.length; i++) {
+      if (x[i] != y[i]) return false;
+    }
+  }
+  return true;
 }
 
 ThemeData themeFor(Palette c) {
@@ -384,6 +426,9 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
   /// What the filter sheet narrows it to.
   final _more = LibraryFilter();
 
+  /// Search text, folded; null while the search field is closed.
+  String? _search;
+
   @override
   void initState() {
     super.initState();
@@ -415,19 +460,21 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
     final picked = await FilePicker.pickFiles();
     if (picked.isEmpty) return;
     setState(() => _importing = true);
-    final failed = <String>[];
+    final failed = <String>[], already = <String>[];
     for (final f in picked) {
       try {
-        if (f.path != null) await library.import(f.path!);
+        if (f.path != null && !await library.import(f.path!)) already.add(f.name);
       } catch (e) {
         failed.add(f.name);
       }
     }
     if (!mounted) return;
     setState(() => _importing = false);
-    if (failed.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Açılamadı')}: ${failed.join(', ')}')));
-    }
+    final notes = [
+      if (failed.isNotEmpty) '${tr('Açılamadı')}: ${failed.join(', ')}',
+      if (already.isNotEmpty) '${tr('Zaten kitaplıkta')}: ${already.join(', ')}',
+    ];
+    if (notes.isNotEmpty) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(notes.join('\n'))));
   }
 
   void _open(Book b, GlobalKey cover) {
@@ -486,6 +533,8 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
 
   bool _matches(Book b) =>
       _more.matches(b) &&
+      (_search == null ||
+          foldForSearch([b.title, ...b.info.values.where((v) => v.length < 200), ...b.tags].join('\n')).contains(_search!)) &&
       switch (_filter) {
         'all' => true,
         'fav' => b.favorite,
@@ -537,34 +586,6 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
     );
   }
 
-  /// How many books show, how they are ordered, and the way to narrow them further.
-  Widget _toolbar(Palette c, int shown) {
-    final s = settings;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 6, 12, 0),
-      child: Row(children: [
-        Text('$shown ${tr('kitap')}', style: TextStyle(color: c.muted, fontSize: 13)),
-        const Spacer(),
-        TextButton.icon(
-          onPressed: () => showShelfSheet(context, (_) => const SortSheet()),
-          style: TextButton.styleFrom(foregroundColor: c.ink, padding: const EdgeInsets.symmetric(horizontal: 10)),
-          icon: Icon(s.sortDescending ? Icons.arrow_downward : Icons.arrow_upward, size: 16, color: c.accent),
-          label: Text(tr(s.sortBy.label), style: const TextStyle(fontSize: 13)),
-        ),
-        IconButton(
-          tooltip: tr('Filtrele'),
-          onPressed: () => showShelfSheet(context, (_) => FilterSheet(filter: _more, onChanged: () => setState(() {}))),
-          icon: Badge(
-            isLabelVisible: _more.count > 0,
-            label: Text('${_more.count}'),
-            backgroundColor: c.accent,
-            child: Icon(Icons.filter_list, color: _more.count > 0 ? c.accent : c.muted, size: 22),
-          ),
-        ),
-      ]),
-    );
-  }
-
   void _listMenu(String name) {
     final c = settings.palette;
     showModalBottomSheet<void>(
@@ -592,7 +613,74 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
     );
   }
 
-  Widget _grid(List<Book> books, int columns, int from) => SliverPadding(
+  /// Category sections in the chosen order, each category once.
+  List<String> _sections(List<Book> books) {
+    final keys = {for (final b in books) ...b.shelves}.toList()..sort((a, b) => sortKey(tr(a)).compareTo(sortKey(tr(b))));
+    return settings.sortDescending ? keys.reversed.toList() : keys;
+  }
+
+  /// Search, how many books show, how they are ordered, grid or list, and the way to narrow them further.
+  Widget _toolbar(Palette c, int shown) {
+    final s = settings;
+    final searching = _search != null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+      child: Row(children: [
+        IconButton(
+          tooltip: tr(searching ? 'Aramayı kapat' : 'Ara'),
+          onPressed: () => setState(() => _search = searching ? null : ''),
+          icon: Icon(searching ? Icons.close : Icons.search, color: searching ? c.accent : c.muted, size: 22),
+        ),
+        Expanded(
+          child: searching
+              ? TextField(
+                  autofocus: true,
+                  style: TextStyle(color: c.ink, fontSize: 15),
+                  decoration: InputDecoration(isDense: true, hintText: tr('Ad, yazar, etiket…'), suffixText: '$shown'),
+                  onChanged: (v) => setState(() => _search = foldForSearch(v.trim())),
+                )
+              : Text('$shown ${tr('kitap')}', style: TextStyle(color: c.muted, fontSize: 13)),
+        ),
+        if (!searching)
+          TextButton.icon(
+            onPressed: () => showShelfSheet(context, (_) => const SortSheet()),
+            style: TextButton.styleFrom(foregroundColor: c.ink, padding: const EdgeInsets.symmetric(horizontal: 8)),
+            icon: Icon(s.sortDescending ? Icons.arrow_downward : Icons.arrow_upward, size: 16, color: c.accent),
+            label: Text(tr(s.sortBy.label), style: const TextStyle(fontSize: 13)),
+          ),
+        IconButton(
+          tooltip: tr(s.libraryList ? 'Izgara görünümü' : 'Liste görünümü'),
+          onPressed: () => s.update((x) => x.libraryList = !x.libraryList),
+          icon: Icon(s.libraryList ? Icons.grid_view_rounded : Icons.view_list_rounded, color: c.muted, size: 22),
+        ),
+        IconButton(
+          tooltip: tr('Filtrele'),
+          onPressed: () => showShelfSheet(context, (_) => FilterSheet(filter: _more, onChanged: () => setState(() {}))),
+          icon: Badge(
+            isLabelVisible: _more.count > 0,
+            label: Text('${_more.count}'),
+            backgroundColor: c.accent,
+            child: Icon(Icons.filter_list, color: _more.count > 0 ? c.accent : c.muted, size: 22),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _grid(List<Book> books, int columns, int from) => settings.libraryList
+      ? SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          sliver: SliverList.builder(
+            itemCount: books.length,
+            itemBuilder: (context, i) => _Entering(
+              key: ValueKey(books[i].path),
+              parent: _enter,
+              index: from + i,
+              child: _BookRow(book: books[i], onOpen: _open, onLong: () => _details(books[i])),
+            ),
+          ),
+        )
+      : SliverPadding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
         sliver: SliverGrid.builder(
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -727,7 +815,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                   _grid(shown, columns, 2)
                 else
                   // By category: a section per category, a book in each of its categories, titles A to Z inside.
-                  for (final k in sortBooks(shown, SortBy.category, settings.sortDescending).expand((b) => b.shelves).toSet()) ...[
+                  for (final k in _sections(shown)) ...[
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(24, 6, 24, 14),
                       sliver: SliverToBoxAdapter(
@@ -902,6 +990,62 @@ class _BookCardState extends State<_BookCard> {
   }
 }
 
+/// A book as one row of the list view: cover, title, author, and how far it has been read.
+class _BookRow extends StatefulWidget {
+  const _BookRow({required this.book, required this.onOpen, required this.onLong});
+  final Book book;
+  final void Function(Book, GlobalKey) onOpen;
+  final VoidCallback onLong;
+  @override
+  State<_BookRow> createState() => _BookRowState();
+}
+
+class _BookRowState extends State<_BookRow> {
+  final _cover = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = settings.palette;
+    final b = widget.book;
+    return Pressable(
+      enabled: motionOn(context, settings),
+      onTap: () => widget.onOpen(b, _cover),
+      onLongPress: widget.onLong,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(children: [
+          SizedBox(key: _cover, width: 46, height: 66, child: BookCover(book: b, ribbon: false)),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Expanded(
+                  child: Text(b.title,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.ink, fontSize: 15, fontWeight: FontWeight.w500)),
+                ),
+                if (b.favorite) Icon(Icons.star_rounded, size: 16, color: c.accent),
+              ]),
+              if (b.info['author'] case final author?)
+                Text(author, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.muted, fontSize: 13)),
+              const SizedBox(height: 6),
+              Row(children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(1),
+                    child: LinearProgressIndicator(value: b.progress, minHeight: 2, color: c.accent, backgroundColor: c.line),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(b.total == 0 ? tr('Yeni') : '%${(b.progress * 100).round()}', style: TextStyle(color: c.muted, fontSize: 12)),
+              ]),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
 /// A book's cover with the bookmark ribbon that shows how far it has been read.
 class BookCover extends StatelessWidget {
   const BookCover({super.key, required this.book, this.ribbon = true});
@@ -923,16 +1067,24 @@ class BookCover extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
           child: cover != null && File(cover).existsSync()
               ? Image.file(File(cover), fit: BoxFit.cover, gaplessPlayback: true)
-              : Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Align(
-                    alignment: Alignment.topLeft,
-                    child: Material(
-                      type: MaterialType.transparency,
-                      child: Text(book.title,
-                          style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 16, height: 1.25)),
-                    ),
-                  ),
+              : LayoutBuilder(
+                  // Too small for the title (a list row): its first letter.
+                  builder: (context, box) => box.maxWidth < 80
+                      ? Center(
+                          child: Text(book.title.characters.first.toUpperCase(),
+                              style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 22)),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Align(
+                            alignment: Alignment.topLeft,
+                            child: Material(
+                              type: MaterialType.transparency,
+                              child: Text(book.title,
+                                  style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 16, height: 1.25)),
+                            ),
+                          ),
+                        ),
                 ),
         ),
       ),

@@ -190,6 +190,7 @@ class Settings extends ChangeNotifier {
   bool ttsEnabled = true;
   bool onlineLookup = true;
   SortBy sortBy = SortBy.opened;
+  bool libraryList = false;
   bool sortDescending = true;
   VoiceSource voiceSource = VoiceSource.system;
   String? ttsModelId;
@@ -278,6 +279,7 @@ class Settings extends ChangeNotifier {
       onlineLookup = j['onlineLookup'] as bool? ?? true;
       sortBy = SortBy.values.asNameMap()[j['sortBy']] ?? (j['groupByCategory'] == true ? SortBy.category : SortBy.opened);
       sortDescending = j['sortDescending'] as bool? ?? sortBy.newestFirst;
+      libraryList = j['libraryList'] as bool? ?? false;
       voiceSource = VoiceSource.values.byName(j['voiceSource'] as String? ?? 'system');
       ttsModelId = j['ttsModelId'] as String?;
       ttsVoice = j['ttsVoice'] as int? ?? 0;
@@ -329,6 +331,7 @@ class Settings extends ChangeNotifier {
       'onlineLookup': onlineLookup,
       'sortBy': sortBy.name,
       'sortDescending': sortDescending,
+      'libraryList': libraryList,
       'voiceSource': voiceSource.name,
       'ttsModelId': ttsModelId,
       'ttsVoice': ttsVoice,

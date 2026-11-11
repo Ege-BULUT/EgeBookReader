@@ -16,6 +16,7 @@ class MainActivity : FlutterActivity() {
     private var volumeKeysTurnPages = false
     private var reading = false
     private var channel: MethodChannel? = null
+    private var pendingSave: Pair<String, MethodChannel.Result>? = null
 
     private fun updateSpeechService(args: Map<*, *>) {
         val service = Intent(this, ReadingService::class.java)
@@ -53,6 +54,17 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "shouldRest" -> result.success(shouldRest())
+                    "saveDocument" -> {
+                        val args = call.arguments as Map<*, *>
+                        pendingSave = (args["path"] as String) to result
+                        startActivityForResult(
+                            Intent(Intent.ACTION_CREATE_DOCUMENT)
+                                .addCategory(Intent.CATEGORY_OPENABLE)
+                                .setType("application/octet-stream")
+                                .putExtra(Intent.EXTRA_TITLE, args["name"] as String),
+                            SAVE_DOCUMENT,
+                        )
+                    }
                     "speechService" -> {
                         updateSpeechService(call.arguments as Map<*, *>)
                         result.success(null)
@@ -61,6 +73,25 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+    }
+
+    // Copies the file Dart prepared to where the reader chose, off the main thread: a library backup can be large.
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != SAVE_DOCUMENT) return
+        val (path, result) = pendingSave ?: return
+        pendingSave = null
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) return result.success(false)
+        Thread {
+            try {
+                contentResolver.openOutputStream(uri)!!.use { out -> java.io.File(path).inputStream().use { it.copyTo(out) } }
+                runOnUiThread { result.success(true) }
+            } catch (e: Exception) {
+                runOnUiThread { result.error("write", e.message, null) }
+            }
+        }.start()
     }
 
     // Background colouring waits while the phone is warm or saving battery.
@@ -107,6 +138,7 @@ class MainActivity : FlutterActivity() {
     }
 
     companion object {
+        private const val SAVE_DOCUMENT = 42
         private var speechChannel: MethodChannel? = null
 
         /** A button on the reading notification was pressed. */
