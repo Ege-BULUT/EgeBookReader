@@ -149,3 +149,11 @@ that names the old one.
 - A per-book switch, "Read right to left (manga)", in the Page tab (hidden in Scroll mode); stored as `rtl` on the book.
 - The turn is drawn mirrored (`Transform.flip` around the curl painter) and the shader samples each page mirrored (`uMirror`), so pages read the right way round while the paper lifts from the left edge. Finger positions for the turn are mirrored too; pinch and pan are not. Spreads put the current page on the right. Tap zones are looked up mirrored, so the left side turns forward. Volume keys keep their meaning (next is next).
 - Checked: a widget test (a swipe to the right turns forward, to the left turns back) and on the emulator with a DjVu, a turn held half way from the left edge. Not done yet: the page scrubber still runs left to right.
+
+## 2026-11-11 D19 Webtoon strip (0.1.5)
+
+- Picture books (CBZ, CBT, CBR, CB7, DjVu) report each page's own size (`PageSource.pageSizes`; comics read it from each picture's header in `prepare`).
+- In Scroll mode those pages keep their own shape, fitted to the width, so the list has a height per page (`itemExtentBuilder` over running totals) instead of one fixed height.
+- A book whose pages are mostly strips (taller than twice their width) is a webtoon: it always scrolls, whatever the turn mode, with no gap. Heights are rounded to whole device pixels; a fractional height left a one-pixel line of paper between strips.
+- A strip taller than 8192 device pixels is drawn coarser (texture limit). Tiles would fix it if it shows.
+- Checked: a test that a CBZ reports its pages' sizes, and on the emulator with a four-strip CBZ (720x2400 each): strips fill the width, meet without a line, the page counter follows, and the book reopens where it was left.

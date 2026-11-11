@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'dart:ui' as ui;
 
+import 'package:archive/archive.dart';
 import 'package:egebookreader/colorize.dart';
 import 'package:egebookreader/curl.dart';
 import 'package:egebookreader/formats.dart';
@@ -275,6 +276,28 @@ void main() {
       expect(p.inlines[1].bold, isTrue);
       expect(p.inlines[3].italic, isTrue);
       expect((b.blocks[2] as TextBlock).inlines.single.text, 'madde');
+    });
+
+    testWidgets('comic pages keep their own sizes, so a webtoon strip is not squeezed', (tester) async {
+      await tester.runAsync(() async {
+        Future<Uint8List> png(int w, int h) async {
+          final recorder = ui.PictureRecorder();
+          Canvas(recorder);
+          final image = await recorder.endRecording().toImage(w, h);
+          return (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
+        }
+
+        final zip = Archive()
+          ..addFile(ArchiveFile.bytes('1.png', await png(80, 400)))
+          ..addFile(ArchiveFile.bytes('2.png', await png(60, 90)));
+        final book = CbzSource.parse(Uint8List.fromList(ZipEncoder().encode(zip)), 'x');
+        const style = PageStyle(
+          paper: Colors.white, ink: Colors.black, fontSize: 18, lineHeight: 1.5,
+          fontFamily: 'serif', bold: false, italic: false, grain: 0, actualBook: false,
+        );
+        await book.prepare(const Size(360, 640), style);
+        expect(book.pageSizes, [const Size(80, 400), const Size(60, 90)]);
+      });
     });
 
     test('RTF text, Turkish code page and unicode escapes', () {

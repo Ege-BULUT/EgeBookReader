@@ -25,6 +25,8 @@ class DjvuSource extends PageSource {
   final String _path;
   final int _doc;
   final List<Size> _sizes;
+  @override
+  List<Size> get pageSizes => _sizes;
   Future<void> _queue = Future.value();
 
   static Future<DjvuSource> open(String path, String title) async {

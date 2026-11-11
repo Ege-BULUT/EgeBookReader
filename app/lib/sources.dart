@@ -143,6 +143,9 @@ abstract class PageSource {
   /// A picture to use as the cover, or null.
   Future<Uint8List?> coverBytes() async => null;
 
+  /// Each page's own size, for books that are pictures (comics, DjVu), once [prepare] has run; null for the rest.
+  List<Size>? get pageSizes => null;
+
   void dispose() {}
 }
 
@@ -960,7 +963,12 @@ class CbzSource extends PageSource {
   }
 
   @override
-  Future<void> prepare(Size page, PageStyle style, {void Function(double)? onProgress}) async {}
+  List<Size>? pageSizes;
+
+  @override
+  Future<void> prepare(Size page, PageStyle style, {void Function(double)? onProgress}) async {
+    pageSizes ??= [for (final f in _images) await _measure(f.content)];
+  }
 
   @override
   Future<Uint8List?> coverBytes() async => _images.isEmpty ? null : _images.first.content;
@@ -981,11 +989,7 @@ class CbzSource extends PageSource {
   @override
   Future<List<PageImage>> imagesOn(int index, Size page) async {
     final bytes = _images[index].content;
-    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    final desc = await ui.ImageDescriptor.encoded(buffer);
-    final size = Size(desc.width.toDouble(), desc.height.toDouble());
-    desc.dispose();
-    buffer.dispose();
+    final size = await _measure(bytes);
     final dst = Alignment.center.inscribe(applyBoxFit(BoxFit.contain, size, page).destination, Offset.zero & page);
     return [PageImage(contentId(bytes), dst, () async => bytes)];
   }
@@ -1018,7 +1022,12 @@ class ImageFolderSource extends PageSource {
   int get pageCount => _files.length;
 
   @override
-  Future<void> prepare(Size page, PageStyle style, {void Function(double)? onProgress}) async {}
+  List<Size>? pageSizes;
+
+  @override
+  Future<void> prepare(Size page, PageStyle style, {void Function(double)? onProgress}) async {
+    pageSizes ??= [for (final f in _files) await _measure(await f.readAsBytes())];
+  }
 
   @override
   Future<Uint8List?> coverBytes() => _files.first.readAsBytes();
@@ -1039,14 +1048,20 @@ class ImageFolderSource extends PageSource {
   @override
   Future<List<PageImage>> imagesOn(int index, Size page) async {
     final bytes = await _files[index].readAsBytes();
-    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    final desc = await ui.ImageDescriptor.encoded(buffer);
-    final size = Size(desc.width.toDouble(), desc.height.toDouble());
-    desc.dispose();
-    buffer.dispose();
+    final size = await _measure(bytes);
     final dst = Alignment.center.inscribe(applyBoxFit(BoxFit.contain, size, page).destination, Offset.zero & page);
     return [PageImage(contentId(bytes), dst, () async => bytes)];
   }
+}
+
+/// The size of an encoded picture, read from its header without decoding it.
+Future<Size> _measure(Uint8List bytes) async {
+  final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+  final desc = await ui.ImageDescriptor.encoded(buffer);
+  final size = Size(desc.width.toDouble(), desc.height.toDouble());
+  desc.dispose();
+  buffer.dispose();
+  return size;
 }
 
 bool _isPicture(String name) => RegExp(r'\.(jpe?g|png|webp|gif|bmp)$', caseSensitive: false).hasMatch(name);

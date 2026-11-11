@@ -186,7 +186,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     if (!mounted) return;
     if (!_canGo(1)) return speaker.stop();
     _speechTurning = true;
-    if (settings.mode == TurnMode.scroll) {
+    if (_scrolling) {
       _seek(_page + 1);
       _speechTurning = false;
       _speakFromHere();
@@ -207,7 +207,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     final generation = _generation;
     for (final entry in _pageImages.entries.toList()) {
       if (!entry.value.any((i) => i.id == id) || !_images.containsKey(entry.key)) continue;
-      final img = await _renderOne(entry.key, _pageSize!, _style!);
+      final img = await _renderOne(entry.key, _sizeOf(entry.key), _style!);
       if (!mounted || generation != _generation) {
         img.dispose();
         return;
@@ -223,13 +223,13 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   Future<void> _startAutoColorize() async {
     if (settings.colorizeMode != ColorizeMode.auto || !colorizer.modelReady || _autoStarted) return;
     _autoStarted = true;
-    final source = _source!, page = _pageSize!;
+    final source = _source!;
     final firstVisit = !widget.book.colorizeStarted;
     final first = <PageImage>[];
     var pagesWithImages = 0;
     var next = _page;
     for (; next < _count && pagesWithImages < settings.autoColorizePages; next++) {
-      final images = await source.imagesOn(next, page);
+      final images = await source.imagesOn(next, _sizeOf(next));
       if (images.isEmpty) continue;
       pagesWithImages++;
       first.addAll(images);
@@ -245,7 +245,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     library.save();
     unawaited(() async {
       for (var i = next; i < _count && mounted; i++) {
-        for (final image in await source.imagesOn(i, page)) {
+        for (final image in await source.imagesOn(i, _sizeOf(i))) {
           colorizer.enqueue(image, title: widget.book.title, pageNumber: i + 1);
         }
       }
@@ -327,7 +327,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     if (call.method != 'key') return;
     var dir = call.arguments as int;
     if (settings.invertVolume) dir = -dir;
-    if (settings.mode == TurnMode.scroll) {
+    if (_scrolling) {
       final h = _scroll.position.viewportDimension;
       _scroll.animateTo(
         (_scroll.offset + dir * h * 0.85).clamp(0, _scroll.position.maxScrollExtent),
@@ -341,8 +341,12 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   // ---- layout and page images ------------------------------------------------------------------------
 
-  bool get _spreadActive => _spread && settings.mode != TurnMode.scroll;
+  bool get _spreadActive => _spread && !_scrolling;
   bool _spread = false;
+
+  /// A webtoon: most pages are strips more than twice as tall as wide. It always scrolls, with no gap between strips.
+  bool _strip = false;
+  bool get _scrolling => settings.mode == TurnMode.scroll || _strip;
   int get _step => _spreadActive ? 2 : 1;
   int get _count => _source?.pageCount ?? 0;
 
@@ -363,7 +367,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     _blank = null;
     final shown = [for (var i = _page; i < _page + _step; i++) old[i]].nonNulls.toList();
     final previous = paperBefore;
-    if (old.isNotEmpty && shown.isNotEmpty && settings.mode != TurnMode.scroll && motionOn(context, settings)) {
+    if (old.isNotEmpty && shown.isNotEmpty && !_scrolling && motionOn(context, settings)) {
       _dropGhost();
       _ghost = _Ghost(shown, _inset, _spreadActive, _backdrop, previous != style.paper, old);
     } else if (old.isNotEmpty) {
@@ -386,6 +390,16 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       });
       if (!mounted || generation != _generation) return;
       _page = _align((fraction * _count).round().clamp(0, max(0, _count - 1)).toInt());
+      final sizes = _source!.pageSizes;
+      final strip = sizes != null && sizes.where((s) => s.height > s.width * 2).length * 2 > sizes.length;
+      if (strip != _strip) {
+        // The page size depends on it, so build again and lay the book out at the new size.
+        setState(() {
+          _strip = strip;
+          _pageSize = null;
+        });
+        return;
+      }
       if (style.backgroundKey != null) {
         final dpr = MediaQuery.devicePixelRatioOf(context);
         final next = await composeCustomPaper(settings.custom, (page.width * dpr).ceil(), (page.height * dpr).ceil(), dpr);
@@ -404,7 +418,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       if (!mounted || generation != _generation) return;
       setState(() => _ready = true);
       _remember();
-      if (settings.mode == TurnMode.scroll) _jumpScroll();
+      if (_scrolling) _jumpScroll();
       _maybeSwing();
       if (_ghost != null) {
         _reveal.forward(from: 0).whenComplete(() {
@@ -438,7 +452,6 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   Future<void> _renderWindow(int generation, {bool first = false}) async {
     if (!_onScreen && !first) return; // no drawing with the screen off; it catches up on return
-    final page = _pageSize!;
     final style = _style!;
     final near = <int>[
       for (var d = 0; d <= _step * 2; d++) ...[_page + d, _page + _step - 1 - d, if (d > 0) _page - d],
@@ -449,7 +462,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     Future<void> one(int i) async {
       if (_images.containsKey(i) || _rendering.contains(i)) return;
       _rendering.add(i);
-      final img = await _renderOne(i, page, style);
+      final img = await _renderOne(i, _sizeOf(i), style);
       if (generation != _generation || !mounted) {
         img.dispose();
         return;
@@ -473,7 +486,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   Future<ui.Image> _renderOne(int index, Size page, PageStyle s, {double sharper = 1}) async {
     _source?.renderScale = sharper;
-    final dpr = MediaQuery.devicePixelRatioOf(context) * sharper;
+    // ponytail: a webtoon strip taller than 8192 pixels is drawn coarser; split it into tiles if that shows.
+    final dpr = min(MediaQuery.devicePixelRatioOf(context) * sharper, 8192 / page.height);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder)..scale(dpr);
     final background = _customBackground;
@@ -653,7 +667,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   bool _openPicture(int index, Offset inPage, Offset pageOrigin) {
     final images = _pageImages[index] ?? const <PageImage>[];
-    final page = _pageSize!;
+    final page = _sizeOf(index);
     for (final (i, image) in images.indexed) {
       if (!image.rect.contains(inPage)) continue;
       // A picture fitted to the page (edge to edge in either direction, as comic and DjVu pages are) counts as the page.
@@ -726,22 +740,56 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     setState(() => _page = _align(page.clamp(0, max(0, _count - 1))));
     _remember();
     _renderWindow(_generation, first: true);
-    if (settings.mode == TurnMode.scroll) _jumpScroll();
+    if (_scrolling) _jumpScroll();
   }
 
   // ---- vertical scroll ---------------------------------------------------------------------------------
 
-  double get _itemExtent => (_pageSize?.height ?? 1) + settings.scrollGap;
+  double get _gap => _strip ? 0 : settings.scrollGap;
+
+  /// Page [i]'s size. Scrolling, a picture page keeps its own shape, fitted to the width.
+  Size _sizeOf(int i) {
+    final page = _pageSize!, sizes = _source?.pageSizes;
+    if (!_scrolling || sizes == null || i < 0 || i >= sizes.length) return page;
+    // Whole device pixels, so no half-painted row of paper shows between strips.
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    return Size(page.width, (page.width * sizes[i].height / sizes[i].width * dpr).round() / dpr);
+  }
+
+  List<double>? _tops;
+
+  /// Where page [i] starts in the scroll; page [_count] is the end.
+  double _top(int i) {
+    if (_tops == null) {
+      var y = 0.0;
+      _tops = [0, for (var j = 0; j < _count; j++) y += _sizeOf(j).height + _gap];
+    }
+    return _tops![i];
+  }
+
+  /// The page at [y] in the scroll.
+  int _pageAt(double y) {
+    var lo = 0, hi = _count - 1;
+    while (lo < hi) {
+      final mid = (lo + hi + 1) ~/ 2;
+      if (_top(mid) <= y) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return lo;
+  }
 
   void _jumpScroll() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) _scroll.jumpTo(_page * _itemExtent);
+      if (_scroll.hasClients) _scroll.jumpTo(_top(_page));
     });
   }
 
   void _onScroll() {
-    if (settings.mode != TurnMode.scroll || !_ready) return;
-    final page = (_scroll.offset / _itemExtent + 0.3).floor().clamp(0, max(0, _count - 1)).toInt();
+    if (!_scrolling || !_ready) return;
+    final page = _pageAt(_scroll.offset + _scroll.position.viewportDimension * 0.3);
     if (page != _page) {
       _page = page;
       _remember();
@@ -773,7 +821,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
             final inset = filters ? _bookInset(screen) : EdgeInsets.zero;
             _inset = inset;
             final book = inset.deflateSize(screen);
-            final scrolling = settings.mode == TurnMode.scroll;
+            final scrolling = _scrolling;
+            _tops = null;
             final page = scrolling
                 ? Size(book.width, _scrollPageHeight(book))
                 : (_spreadActive ? Size(book.width / 2, book.height) : book);
@@ -1085,13 +1134,13 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     return GestureDetector(
       onTapUp: (d) {
         final at = d.localPosition.dy + _scroll.offset;
-        final index = (at / _itemExtent).floor();
-        if (index >= 0 && index < _count && _openPicture(index, Offset(d.localPosition.dx, at - index * _itemExtent), Offset(0, index * _itemExtent - _scroll.offset))) return;
+        final index = _pageAt(at);
+        if (index < _count && _openPicture(index, Offset(d.localPosition.dx, at - _top(index)), Offset(0, _top(index) - _scroll.offset))) return;
         _toggleMenu();
       },
       child: ListView.builder(
         controller: _scroll,
-        itemExtent: _itemExtent,
+        itemExtentBuilder: (i, _) => i < _count ? _top(i + 1) - _top(i) : null,
         itemCount: _count,
         itemBuilder: (context, i) {
           final img = _images[i];
@@ -1099,7 +1148,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
             WidgetsBinding.instance.addPostFrameCallback((_) => _renderWindow(_generation));
           }
           return Padding(
-            padding: EdgeInsets.only(bottom: settings.scrollGap),
+            padding: EdgeInsets.only(bottom: _gap),
             child: img == null
                 ? ColoredBox(color: settings.palette.paper)
                 : Stack(fit: StackFit.expand, children: [
