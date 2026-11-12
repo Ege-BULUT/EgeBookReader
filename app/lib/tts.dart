@@ -294,7 +294,10 @@ class SpeechMap {
 /// Reads a list of sentences aloud through whichever voice is chosen, one at a time.
 class Speaker extends ChangeNotifier {
   final _system = FlutterTts();
-  final _player = AudioPlayer();
+  // The reading service holds the audio focus (music ducks under the voice), so the player asks for none itself.
+  final _player = AudioPlayer()
+    ..setAudioContext(AudioContext(
+        android: const AudioContextAndroid(contentType: AndroidContentType.speech, audioFocus: AndroidAudioFocus.none)));
   bool _systemReady = false;
 
   SpeechMap map = SpeechMap(const []);

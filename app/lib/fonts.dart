@@ -59,7 +59,13 @@ class FontStore extends ChangeNotifier {
     _dir = Directory(p.join((await getApplicationDocumentsDirectory()).path, 'fonts'));
     await _dir.create(recursive: true);
     if (!_index.existsSync()) return;
-    for (final e in jsonDecode(_index.readAsStringSync()) as List<dynamic>) {
+    final List<dynamic> list;
+    try {
+      list = jsonDecode(_index.readAsStringSync()) as List<dynamic>;
+    } on FormatException {
+      return; // cut short when the app closed mid-write; the fonts can be added again
+    }
+    for (final e in list) {
       final j = e as Map<String, dynamic>;
       final f = InstalledFont(j['family'] as String, j['name'] as String,
           (j['fallbacks'] as List<dynamic>).cast<String>(), j['license'] as String? ?? '');

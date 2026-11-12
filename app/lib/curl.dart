@@ -112,7 +112,9 @@ class PageCurlView extends StatefulWidget {
     required this.still,
     required this.onTurned,
     required this.onTap,
+    this.onLongPress,
     this.onZoomChanged,
+    this.panels = false,
   });
 
   final ui.FragmentProgram program;
@@ -134,14 +136,20 @@ class PageCurlView extends StatefulWidget {
   final void Function(int dir) onTurned;
   final void Function(Offset local, Size size) onTap;
 
+  /// A long press, at the point on the unzoomed page.
+  final void Function(Offset local, Size size)? onLongPress;
+
   /// Called with the scale when a pinch settles, so sharper pages can be drawn for it.
   final ValueChanged<double>? onZoomChanged;
+
+  /// Reading panel by panel: the view is zoomed most of the time, and taps still go to [onTap].
+  final bool panels;
 
   @override
   State<PageCurlView> createState() => PageCurlViewState();
 }
 
-class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderStateMixin {
+class PageCurlViewState extends State<PageCurlView> with TickerProviderStateMixin {
   late final AnimationController _anim = AnimationController.unbounded(vsync: this);
   late final ui.FragmentShader _shader = widget.program.fragmentShader();
   final _frame = ValueNotifier<int>(0);
@@ -165,6 +173,34 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
   bool get _zoomed => _scale > 1.01;
   DateTime _lastZoomTap = DateTime(2000);
 
+  late final AnimationController _zoomer = AnimationController(vsync: this, duration: const Duration(milliseconds: 320))
+    ..addListener(() {
+      final t = Curves.easeInOutCubic.transform(_zoomer.value);
+      setState(() {
+        _scale = ui.lerpDouble(_zoomFrom.$1, _zoomTo.$1, t)!;
+        _pan = Offset.lerp(_zoomFrom.$2, _zoomTo.$2, t)!;
+      });
+    });
+  (double, Offset) _zoomFrom = (1, Offset.zero), _zoomTo = (1, Offset.zero);
+
+  /// Zooms so [r], a rectangle on the unzoomed page, fills as much of the view as it can.
+  void zoomTo(Rect r) {
+    final from = (_scale, _pan);
+    _scale = (min(_size.width / r.width, _size.height / r.height) * 0.97).clamp(1.0, 5.0);
+    _zoomTo = (_scale, _clampPan(_size.center(Offset.zero) - r.center * _scale));
+    _scale = from.$1;
+    _zoomFrom = from;
+    if (!widget.animate) {
+      setState(() {
+        _scale = _zoomTo.$1;
+        _pan = _zoomTo.$2;
+      });
+      widget.onZoomChanged?.call(_scale);
+      return;
+    }
+    _zoomer.forward(from: 0).whenComplete(() => widget.onZoomChanged?.call(_scale));
+  }
+
   double get _hinge => widget.spread ? _size.width / 2 : 0;
   double get _pageW => widget.spread ? _size.width / 2 : _size.width;
 
@@ -184,6 +220,7 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
   @override
   void dispose() {
     _anim.dispose();
+    _zoomer.dispose();
     _shader.dispose();
     _frame.dispose();
     super.dispose();
@@ -360,6 +397,7 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
       );
 
   void resetZoom() {
+    _zoomer.stop();
     setState(() {
       _scale = 1;
       _pan = Offset.zero;
@@ -386,12 +424,13 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) {
-            if (!_zoomed) return widget.onTap(d.localPosition, _size);
+            if (!_zoomed || widget.panels) return widget.onTap(d.localPosition, _size);
             // Zoomed in, taps must not turn pages; a double tap goes back to the whole page.
             final now = DateTime.now();
             if (now.difference(_lastZoomTap).inMilliseconds < 300) resetZoom();
             _lastZoomTap = now;
           },
+          onLongPressStart: widget.onLongPress == null ? null : (d) => widget.onLongPress!((d.localPosition - _pan) / _scale, _size),
           onScaleStart: _scaleStart,
           onScaleUpdate: _scaleUpdate,
           onScaleEnd: _scaleEnd,
@@ -425,7 +464,7 @@ class PageCurlViewState extends State<PageCurlView> with SingleTickerProviderSta
                   ),
                   ),
                 ),
-              if (_zoomed)
+              if (_zoomed && !widget.panels)
                 Positioned(
                   bottom: 18,
                   left: 0,

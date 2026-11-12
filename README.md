@@ -17,7 +17,7 @@ Free, open source, no account and no ads.</p>
   <img alt="Android 7+" src="https://img.shields.io/badge/Android-7%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Flutter 3.47" src="https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter&logoColor=white">
   <img alt="Works offline" src="https://img.shields.io/badge/works-offline-7E3321">
-  <img alt="Version 0.1.8" src="https://img.shields.io/badge/version-0.1.8%20preview-F59E0B">
+  <img alt="Version 0.2.0" src="https://img.shields.io/badge/version-0.2.0%20preview-F59E0B">
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-2EA043"></a>
 </p>
 
@@ -36,7 +36,7 @@ Free, open source, no account and no ads.</p>
 </div>
 
 > [!NOTE]
-> **0.1.8 is a preview for Android.** It has been tested on an emulator and by its author on one phone. iOS, Windows, macOS and Linux will come from the same code later.
+> **0.2.0 is a preview for Android.** It has been tested on an emulator and by its author on one phone. iOS, Windows, macOS and Linux will come from the same code later.
 
 ## Why EgeBookReader
 
@@ -107,6 +107,11 @@ Done on the phone with the two downloadable models. Lines and lettering are unto
 
 ### Library
 
+- **Bring books in** from files, from a folder (with Calibre's titles, series and covers when it is a Calibre library), or from a computer on the same Wi-Fi: Add book, From a computer over Wi-Fi shows an address to open in the computer's browser. A watched folder (Settings, Library) adds the books put in it each time the app opens.
+- **Ratings, series and a recently added shelf.** Rate a book from 1 to 5 stars in its sheet; sort by rating, or by series in volume order.
+- **Pick several books** with the tick button to favourite, list, file or remove them together.
+- **Home-screen bookshelf**: a widget with the last 3 or last 5 books. A cover opens its book; the button reads the first one aloud, and pauses or stops it while it speaks.
+- **Reading statistics**: minutes a day, a daily goal, a streak and pages turned, kept only on the phone.
 - **Favourites, your own lists, categories and tags.** A book can sit in several categories and lists. Long-press a book to change any of them, or to set your own cover picture (and go back to the original).
 - **Search** the shelf by title, author, publisher or tag; Turkish letters and accents match without typing them ("ornegi" finds "Örneği").
 - **Grid or list.** The list shows each book's cover, author and progress in one row.
@@ -122,6 +127,7 @@ Done on the phone with the two downloadable models. Lines and lettering are unto
 - **Flip** is the default. A cylinder curl drawn per pixel in a GPU shader, driven by where you grab the page. It settles with a spring and keeps the speed of your swipe.
 - **Tap zones.** Draw rectangles and circles on the screen and give each one a job: previous, next, menu, bookmark. Portrait and landscape have separate layouts.
 - **Right to left** for manga, set per book. The page lifts from the left edge, the left side of the screen turns forward, two-page spreads read right to left, and the page bar runs from the right.
+- **Panel by panel** for comics: the panel button zooms from one panel to the next, in reading order (right to left for manga).
 - **Webtoons** scroll as one long strip: a comic whose pages are mostly taller than twice their width always scrolls, fitted to the width with no gap. In Scroll mode every comic and DjVu page keeps its own shape.
 - **Endless vertical scroll**, with an adjustable gap between pages (2 px by default).
 - **Volume keys** turn pages in every mode, and can be inverted.
@@ -159,13 +165,18 @@ DRM-protected books are not opened; the app says so. PDFs have a reflow switch, 
 - Each word is marked like a yellow highlighter as it is read, and the page turns by itself.
 - Drag the bar on the player, or hold the marker and move it: the highlight follows live and the voice goes there.
 - Speaking speed from 0.5x to 3x. Tap the speed button on the player to step through speeds, or hold it for a slider.
-- Keeps reading with the screen off or another app in front, with pause and stop in the notification.
+- Keeps reading with the screen off or another app in front. Pause, resume and stop from the notification, the lock screen or headphone buttons. Music is turned down under the voice instead of drowning it, and unplugging headphones pauses it.
 - The system voice is the default. Each downloadable voice lists its languages, license and source.
 - Any service with an OpenAI-style `/audio/speech` endpoint works with your own key.
 
+### Notes and highlights
+
+- Long-press a sentence: highlight it in one of four colours, add a note, copy it, look a word up with any dictionary app on the phone, or share it as a picture with the book's name.
+- The contents sheet lists every highlight and note; export them as a Markdown file.
+
 ### Reading comfort
 
-Library with covers and a continue-reading card, bookmarks on a ribbon, table of contents, a page scrubber, a screen that stays on while you read, and a first-run guide that lets you hear the voices and compare the colorizers. The interface is in English and Turkish.
+The time left in the chapter and the book, learnt from your own pace. Dark pages by the clock (from and to times of your own). Brightness by sliding a finger along the left edge. A top bar in the cover's colour. An error log you can save and send. Library with covers and a continue-reading card, bookmarks on a ribbon, table of contents, a page scrubber, a screen that stays on while you read, and a first-run guide that lets you hear the voices and compare the colorizers. The interface is in English and Turkish.
 
 ## Downloadable models
 

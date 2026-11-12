@@ -5,9 +5,17 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.MediaMetadata
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -15,9 +23,49 @@ import android.os.PowerManager
 /**
  * Keeps the app alive while a book is read aloud with the screen off or another app in front.
  * The speaking itself stays in Dart; this holds the process, a wake lock and the notification.
+ *
+ * It is also the book's media session: the lock screen and headset buttons control the voice, music
+ * is turned down (not off) while the voice speaks, and unplugging headphones pauses it.
  */
 class ReadingService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
+    private var session: MediaSession? = null
+    private var focus: AudioFocusRequest? = null
+    private var listening = false
+    private val noisy = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) { MainActivity.sendSpeechAction(ACTION_PAUSE) }
+    }
+
+    private fun mediaSession(): MediaSession = session ?: MediaSession(this, "reading").apply {
+        setCallback(object : MediaSession.Callback() {
+            override fun onPlay() { MainActivity.sendSpeechAction(ACTION_RESUME) }
+            override fun onPause() { MainActivity.sendSpeechAction(ACTION_PAUSE) }
+            override fun onStop() { MainActivity.sendSpeechAction(ACTION_STOP) }
+        })
+        session = this
+    }
+
+    private fun audio() = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+    // Transient and may-duck: music carries on, quieter, under the voice; a call or another player pauses the voice.
+    private fun holdFocus(on: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val request = focus ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build(),
+            )
+            .setOnAudioFocusChangeListener { change ->
+                if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                    MainActivity.sendSpeechAction(ACTION_PAUSE)
+                }
+            }
+            .build()
+            .also { focus = it }
+        if (on) audio().requestAudioFocus(request) else audio().abandonAudioFocusRequest(request)
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -29,7 +77,14 @@ class ReadingService : Service() {
                 val paused = intent?.getBooleanExtra(EXTRA_PAUSED, false) ?: false
                 val labels = intent?.getStringArrayExtra(EXTRA_LABELS) ?: arrayOf("Pause", "Resume", "Stop")
                 show(title, paused, labels)
+                ShelfWidget.setSpeech(this, title, paused)
                 holdWakeLock()
+                holdFocus(!paused)
+                if (!listening) {
+                    val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+                    if (Build.VERSION.SDK_INT >= 33) registerReceiver(noisy, filter, RECEIVER_NOT_EXPORTED) else registerReceiver(noisy, filter)
+                    listening = true
+                }
             }
         }
         return START_NOT_STICKY
@@ -53,6 +108,21 @@ class ReadingService : Service() {
             )
             return Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, icon), label, pending).build()
         }
+        val media = mediaSession().apply {
+            setMetadata(
+                MediaMetadata.Builder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST, labels[3])
+                    .build(),
+            )
+            setPlaybackState(
+                PlaybackState.Builder()
+                    .setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_STOP)
+                    .setState(if (paused) PlaybackState.STATE_PAUSED else PlaybackState.STATE_PLAYING, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
+                    .build(),
+            )
+            isActive = true
+        }
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, CHANNEL) else Notification.Builder(this)
         val notification = builder
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
@@ -61,6 +131,7 @@ class ReadingService : Service() {
             .setContentIntent(open)
             .setOngoing(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setStyle(Notification.MediaStyle().setMediaSession(media.sessionToken).setShowActionsInCompactView(0, 1))
             .addAction(
                 if (paused) action(android.R.drawable.ic_media_play, labels[1], ACTION_RESUME)
                 else action(android.R.drawable.ic_media_pause, labels[0], ACTION_PAUSE),
@@ -82,7 +153,13 @@ class ReadingService : Service() {
     }
 
     override fun onDestroy() {
+        ShelfWidget.setSpeech(this, null, false)
         if (wakeLock?.isHeld == true) wakeLock?.release()
+        holdFocus(false)
+        session?.release()
+        session = null
+        if (listening) unregisterReceiver(noisy)
+        listening = false
         super.onDestroy()
     }
 

@@ -23,6 +23,7 @@ const metaFields = {
   'language': 'Dil',
   'isbn': 'ISBN',
   'series': 'Seri',
+  'volume': 'Cilt',
   'description': 'Açıklama',
 };
 
@@ -108,7 +109,12 @@ BookMeta _epub(Uint8List bytes) {
   final zip = ZipDecoder().decodeBytes(bytes);
   final container = XmlDocument.parse(utf8.decode(_firstWhere(zip, (n) => n == 'meta-inf/container.xml')!));
   final opfPath = _named(container, 'rootfile').first.getAttribute('full-path')!.toLowerCase();
-  final opf = XmlDocument.parse(utf8.decode(_firstWhere(zip, (n) => n == opfPath)!, allowMalformed: true));
+  return readOpf(utf8.decode(_firstWhere(zip, (n) => n == opfPath)!, allowMalformed: true));
+}
+
+/// The facts in an OPF package: the one inside an EPUB, or the metadata.opf Calibre keeps beside each book.
+BookMeta readOpf(String xml) {
+  final opf = XmlDocument.parse(xml);
   final m = BookMeta()
     ..put('title', _text(opf, 'title'))
     ..put('author', _named(opf, 'creator').map((e) => e.innerText.trim()).where((t) => t.isNotEmpty).join(', '))
@@ -120,6 +126,8 @@ BookMeta _epub(Uint8List bytes) {
     ..addSubjects(_named(opf, 'subject').map((e) => e.innerText));
   for (final meta in _named(opf, 'meta')) {
     if (meta.getAttribute('name') == 'calibre:series') m.put('series', meta.getAttribute('content'));
+    if (meta.getAttribute('name') == 'calibre:series_index') m.put('volume', meta.getAttribute('content')?.replaceFirst(RegExp(r'\.0$'), ''));
+    if (meta.getAttribute('property') == 'group-position') m.put('volume', meta.innerText);
     if (meta.getAttribute('property') == 'belongs-to-collection') m.put('series', meta.innerText);
   }
   return m;
@@ -174,6 +182,7 @@ BookMeta _fb2(Uint8List bytes) {
     ..put('language', _text(info, 'lang'))
     ..put('description', _text(info, 'annotation'))
     ..put('series', _named(info, 'sequence').firstOrNull?.getAttribute('name'))
+    ..put('volume', _named(info, 'sequence').firstOrNull?.getAttribute('number'))
     ..addSubjects(_named(info, 'genre').map((e) => e.innerText.replaceAll('_', ' ')));
   if (publish != null) {
     m
@@ -251,6 +260,7 @@ BookMeta _comicInfo(String xml) {
   return BookMeta(null, null, _text(x, 'Manga') == 'YesAndRightToLeft')
     ..put('title', _text(x, 'Title') ?? (series == null ? null : number == null ? series : '$series #$number'))
     ..put('series', series)
+    ..put('volume', number)
     ..put('author', _text(x, 'Writer'))
     ..put('publisher', _text(x, 'Publisher'))
     ..put('date', year == null ? null : month == null ? year : '$year-${month.padLeft(2, '0')}')

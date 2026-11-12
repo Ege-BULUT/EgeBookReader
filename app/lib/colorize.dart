@@ -133,7 +133,11 @@ class Colorizer extends ChangeNotifier {
     _out = Directory(p.join(docs.path, 'colorized'));
     await _out.create(recursive: true);
     if (_originsFile.existsSync()) {
-      (jsonDecode(_originsFile.readAsStringSync()) as Map<String, dynamic>).forEach((k, v) => _origins[k] = v as Map<String, dynamic>);
+      try {
+        (jsonDecode(_originsFile.readAsStringSync()) as Map<String, dynamic>).forEach((k, v) => _origins[k] = v as Map<String, dynamic>);
+      } on FormatException {
+        // cut short when the app closed mid-write; the pictures stay, only where they came from is forgotten
+      }
     }
     if (_hiddenFile.existsSync()) _hidden.addAll(_hiddenFile.readAsLinesSync());
   }

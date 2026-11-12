@@ -18,6 +18,8 @@ List<Book> sortBooks(List<Book> books, SortBy by, bool descending) {
         SortBy.author => b.info['author'] == null ? null : sortKey(b.info['author']!),
         SortBy.publisher => b.info['publisher'] == null ? null : sortKey(b.info['publisher']!),
         SortBy.category => sortKey(tr(b.shelves.first)),
+        SortBy.rating => b.rating == 0 ? null : b.rating,
+        SortBy.series => b.info['series'] == null ? null : '${sortKey(b.info['series']!)}\u0000${volumeOf(b).toStringAsFixed(3).padLeft(12, '0')}',
       };
   final keyed = [for (final (i, b) in books.indexed) (i, b, key(b))];
   keyed.sort((x, y) {
@@ -28,6 +30,9 @@ List<Book> sortBooks(List<Book> books, SortBy by, bool descending) {
   });
   return [for (final k in keyed) k.$2];
 }
+
+/// The book's number in its series, for ordering; books without one go after.
+double volumeOf(Book b) => double.tryParse(RegExp(r'\d+(\.\d+)?').firstMatch(b.info['volume'] ?? '')?.group(0) ?? '') ?? 1e6;
 
 String directionLabel(SortBy by, bool descending) =>
     tr(by.newestFirst ? (descending ? 'Önce en yeni' : 'Önce en eski') : (descending ? 'Z → A' : 'A → Z'));
@@ -40,6 +45,9 @@ class LibraryFilter {
   final states = <String>{}, categories = <String>{}, tags = <String>{}, formats = <String>{}, languages = <String>{};
   List<Set<String>> get _all => [states, categories, tags, formats, languages];
   int get count => _all.fold(0, (n, s) => n + s.length);
+
+  /// The choices as one value, to tell whether they changed.
+  String get signature => [for (final s in _all) (s.toList()..sort()).join('\u0001')].join('\u0002');
   void clear() {
     for (final s in _all) {
       s.clear();
@@ -101,6 +109,8 @@ class SortSheet extends StatelessWidget {
     SortBy.author: Icons.person_outline,
     SortBy.publisher: Icons.apartment_outlined,
     SortBy.category: Icons.category_outlined,
+    SortBy.rating: Icons.star_outline_rounded,
+    SortBy.series: Icons.collections_bookmark_outlined,
   };
 
   @override
@@ -286,6 +296,20 @@ class _BookSheetState extends State<BookSheet> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(b.title, style: TextStyle(color: c.ink, fontSize: 18, fontWeight: FontWeight.w500)),
                 if (author != null) Text(author, style: TextStyle(color: c.muted, fontSize: 13)),
+                const SizedBox(height: 4),
+                Row(children: [
+                  for (var i = 1; i <= 5; i++)
+                    GestureDetector(
+                      onTap: () {
+                        b.rating = b.rating == i ? 0 : i; // the same star again clears the rating
+                        library.changed();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Icon(i <= b.rating ? Icons.star_rounded : Icons.star_outline_rounded, size: 24, color: i <= b.rating ? c.accent : c.muted),
+                      ),
+                    ),
+                ]),
                 Wrap(children: [
                   TextButton(
                     onPressed: _pickCover,
@@ -303,90 +327,109 @@ class _BookSheetState extends State<BookSheet> {
             ),
             IconButton(
               tooltip: tr(b.favorite ? 'Favorilerden çıkar' : 'Favorilere ekle'),
-              icon: Icon(b.favorite ? Icons.star_rounded : Icons.star_outline_rounded, color: b.favorite ? c.accent : c.muted),
+              icon: Icon(b.favorite ? Icons.favorite_rounded : Icons.favorite_border_rounded, color: b.favorite ? c.accent : c.muted),
               onPressed: () {
                 b.favorite = !b.favorite;
                 library.changed();
               },
             ),
           ]),
-          _label('Kategoriler'),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final k in categories)
-              _chip(tr(k), b.categories.contains(k), () {
-                if (!b.categories.remove(k)) b.categories.add(k);
-                library.changed();
-              }),
-          ]),
-          _label('Listeler'),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final l in library.listNames)
-              _chip(l, b.lists.contains(l), () {
-                if (!b.lists.remove(l)) b.lists.add(l);
-                library.changed();
-              }),
-            ActionChip(
-              avatar: Icon(Icons.add, size: 16, color: c.accent),
-              label: Text(tr('Yeni liste')),
-              labelStyle: TextStyle(color: c.accent, fontSize: 13),
-              backgroundColor: c.paper,
-              side: BorderSide(color: c.line),
-              onPressed: () async {
-                final name = await widget.newList();
-                if (name == null) return;
-                b.lists.add(name);
-                library.changed();
-              },
-            ),
-          ]),
-          _label('Etiketler'),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final t in b.tags)
-              InputChip(
-                label: Text(t),
-                labelStyle: TextStyle(color: c.ink, fontSize: 13),
-                backgroundColor: c.surface,
-                side: BorderSide(color: c.line),
-                deleteIconColor: c.muted,
-                onDeleted: () {
-                  b.tags.remove(t);
-                  library.changed();
-                },
-              ),
-          ]),
-          TextField(
-            controller: _tag,
-            style: TextStyle(color: c.ink, fontSize: 14),
-            decoration: InputDecoration(hintText: tr('Etiket ekle'), isDense: true),
-            onSubmitted: _addTag,
-          ),
-          _label('İnternette aranacak metin'),
-          TextField(
-            controller: _query,
-            style: TextStyle(color: c.ink, fontSize: 14),
-            decoration: InputDecoration(
-              isDense: true,
-              suffixIcon: b.query == null
-                  ? null
-                  : IconButton(
-                      tooltip: tr('Varsayılana dön'),
-                      icon: Icon(Icons.restart_alt, color: c.muted, size: 20),
-                      onPressed: () {
-                        _query.text = b.defaultQuery;
-                        _setQuery(b.defaultQuery);
-                      },
-                    ),
-            ),
-            onChanged: _setQuery,
-            onSubmitted: (_) => _lookUp(),
-          ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 14),
           Row(children: [
-            TextButton(
-              onPressed: _looking ? null : _lookUp,
-              style: TextButton.styleFrom(padding: const EdgeInsets.only(right: 16), foregroundColor: c.accent),
-              child: Text(tr(_looking ? 'Aranıyor…' : 'İnternetten bul')),
+            Expanded(
+              child: _dropdown('Kategoriler', [for (final k in categories) if (b.categories.contains(k)) tr(k)], [
+                for (final k in categories)
+                  CheckboxMenuButton(
+                    value: b.categories.contains(k),
+                    closeOnActivate: false,
+                    onChanged: (_) {
+                      if (!b.categories.remove(k)) b.categories.add(k);
+                      library.changed();
+                    },
+                    child: Text(tr(k)),
+                  ),
+              ]),
             ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _dropdown('Listeler', [for (final l in library.listNames) if (b.lists.contains(l)) l], [
+                for (final l in library.listNames)
+                  CheckboxMenuButton(
+                    value: b.lists.contains(l),
+                    closeOnActivate: false,
+                    onChanged: (_) {
+                      if (!b.lists.remove(l)) b.lists.add(l);
+                      library.changed();
+                    },
+                    child: Text(l),
+                  ),
+                MenuItemButton(
+                  leadingIcon: Icon(Icons.add, size: 18, color: c.accent),
+                  onPressed: () async {
+                    final name = await widget.newList();
+                    if (name == null) return;
+                    b.lists.add(name);
+                    library.changed();
+                  },
+                  child: Text(tr('Yeni liste'), style: TextStyle(color: c.accent)),
+                ),
+              ]),
+            ),
+          ]),
+          _fold(b.tags.isEmpty ? tr('Etiketler') : '${tr('Etiketler')} · ${b.tags.join(', ')}', [
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final t in b.tags)
+                InputChip(
+                  label: Text(t),
+                  labelStyle: TextStyle(color: c.ink, fontSize: 13),
+                  backgroundColor: c.surface,
+                  side: BorderSide(color: c.line),
+                  deleteIconColor: c.muted,
+                  onDeleted: () {
+                    b.tags.remove(t);
+                    library.changed();
+                  },
+                ),
+            ]),
+            TextField(
+              controller: _tag,
+              style: TextStyle(color: c.ink, fontSize: 14),
+              decoration: InputDecoration(hintText: tr('Etiket ekle'), isDense: true),
+              onSubmitted: _addTag,
+            ),
+          ]),
+          _fold(tr('İnternetten bul'), [
+            _label('İnternette aranacak metin'),
+            TextField(
+              controller: _query,
+              style: TextStyle(color: c.ink, fontSize: 14),
+              decoration: InputDecoration(
+                isDense: true,
+                suffixIcon: b.query == null
+                    ? null
+                    : IconButton(
+                        tooltip: tr('Varsayılana dön'),
+                        icon: Icon(Icons.restart_alt, color: c.muted, size: 20),
+                        onPressed: () {
+                          _query.text = b.defaultQuery;
+                          _setQuery(b.defaultQuery);
+                        },
+                      ),
+              ),
+              onChanged: _setQuery,
+              onSubmitted: (_) => _lookUp(),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: _looking ? null : _lookUp,
+                style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: c.accent),
+                child: Text(tr(_looking ? 'Aranıyor…' : 'İnternetten bul')),
+              ),
+            ),
+            if (_offline) Text(tr('İnternete ulaşılamadı.'), style: TextStyle(color: c.muted, fontSize: 13)),
+          ]),
+          Row(children: [
             TextButton(
               onPressed: () => showShelfSheet(context, (_) => DetailsSheet(book: b)),
               style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: c.accent),
@@ -402,9 +445,51 @@ class _BookSheetState extends State<BookSheet> {
               child: Text(tr('Kitaplıktan kaldır')),
             ),
           ]),
-          if (_offline) Text(tr('İnternete ulaşılamadı.'), style: TextStyle(color: c.muted, fontSize: 13)),
         ]);
       },
+    );
+  }
+
+  /// A button that shows what is picked and opens a menu of ticks; the menu stays open while ticking.
+  Widget _dropdown(String label, List<String> picked, List<Widget> items) {
+    final c = settings.palette;
+    return MenuAnchor(
+      menuChildren: items,
+      builder: (context, menu, _) => InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => menu.isOpen ? menu.close() : menu.open(),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+          decoration: BoxDecoration(border: Border.all(color: c.line), borderRadius: BorderRadius.circular(8)),
+          child: Row(children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(tr(label), style: TextStyle(color: c.muted, fontSize: 12)),
+                Text(picked.isEmpty ? tr('Seç') : picked.join(', '),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: picked.isEmpty ? c.muted : c.ink, fontSize: 14)),
+              ]),
+            ),
+            Icon(Icons.arrow_drop_down, color: c.muted),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// A section that opens on a tap, closed to begin with.
+  Widget _fold(String title, List<Widget> children) {
+    final c = settings.palette;
+    return ExpansionTile(
+      dense: true,
+      tilePadding: EdgeInsets.zero,
+      shape: const Border(),
+      collapsedShape: const Border(),
+      iconColor: c.muted,
+      collapsedIconColor: c.muted,
+      expandedCrossAxisAlignment: CrossAxisAlignment.start,
+      childrenPadding: const EdgeInsets.only(bottom: 8),
+      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.ink, fontSize: 14)),
+      children: children,
     );
   }
 }

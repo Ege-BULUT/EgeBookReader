@@ -14,6 +14,8 @@ import 'package:pdfrx/pdfrx.dart';
 import 'colorize.dart';
 import 'fonts.dart';
 import 'gallery.dart';
+import 'incoming.dart';
+import 'backup.dart' show logError;
 import 'library_sheets.dart';
 import 'l10n.dart';
 import 'onboarding.dart';
@@ -24,6 +26,7 @@ import 'settings_sheet.dart';
 import 'settings.dart';
 import 'shelf.dart';
 import 'sources.dart';
+import 'stats.dart';
 import 'tts.dart';
 
 final settings = Settings();
@@ -36,9 +39,53 @@ Future<void> main() async {
   await colorizer.load();
   await voices.load();
   await settings.load();
+  FlutterError.onError = (d) {
+    FlutterError.presentError(d);
+    logError(d.exception, d.stack);
+  };
+  ui.PlatformDispatcher.instance.onError = (e, stack) {
+    logError(e, stack);
+    return false;
+  };
   await library.load();
-  AppLifecycleListener(onPause: library.flush, onDetach: library.flush);
+  await stats.load();
+  void flush() {
+    library.flush();
+    stats.flush();
+  }
+
+  AppLifecycleListener(onPause: flush, onDetach: flush, onResume: checkWatchedFolder);
+  device.setMethodCallHandler((call) async {
+    if (call.method != 'open') return readerCalls?.call(call);
+    final a = call.arguments as Map<dynamic, dynamic>;
+    openRequest.value = (a['book'] as String, a['speak'] == true);
+  });
+  // opened from the home-screen shelf
+  if (await device.invokeMethod<Map<dynamic, dynamic>>('takeOpen') case final a?) openRequest.value = (a['book'] as String, a['speak'] == true);
+  library.addListener(_pushShelf);
+  _pushShelf();
   runApp(const EgeBookReaderApp());
+  checkWatchedFolder();
+}
+
+const device = MethodChannel('egebookreader/volume');
+
+/// Calls from Android meant for the open reader (volume keys, the reading notification's buttons).
+Future<dynamic> Function(MethodCall)? readerCalls;
+
+/// A book the home-screen shelf asked for, and whether to read it aloud.
+final openRequest = ValueNotifier<(String, bool)?>(null);
+
+String? _shelfSent;
+
+/// The latest books, for the home-screen shelf.
+void _pushShelf() {
+  final shelf = jsonEncode([
+    for (final b in library.books.take(5)) {'path': b.path, 'title': b.title, 'cover': b.cover ?? ''},
+  ]);
+  if (shelf == _shelfSent) return;
+  _shelfSent = shelf;
+  device.invokeMethod('shelf', shelf);
 }
 
 class Book {
@@ -85,6 +132,15 @@ class Book {
 
   List<double> bookmarks;
 
+  /// The reader's own rating, 1 to 5 stars; 0 when not rated.
+  int rating = 0;
+
+  /// How long a page of this book takes the reader, in seconds, learnt while reading; 0 until known.
+  double secondsPerPage = 0;
+
+  /// Sentences the reader marked, with their notes.
+  final highlights = <Highlight>[];
+
   double get progress => total <= 1 ? 0 : (page + 1) / total;
 
   bool get isComic => comicExtensions.contains(p.extension(path).toLowerCase());
@@ -103,7 +159,7 @@ class Book {
         'path': path, 'title': title, 'cover': coverPath, 'page': page, 'total': total, 'bookmarks': bookmarks,
         'colorizeStarted': colorizeStarted, 'rtl': rtl, 'favorite': favorite, 'categories': categories.toList(), 'tags': tags,
         'lists': lists.toList(), 'info': info, 'online': online, 'looked': looked, 'metaRead': metaRead, 'query': query,
-        'customCover': customCover, 'added': added, 'opened': opened,
+        'customCover': customCover, 'added': added, 'opened': opened, 'highlights': highlights, 'rating': rating, 'secondsPerPage': secondsPerPage,
       };
   static Book fromJson(Map<String, dynamic> j) {
     List<String> strings(String key) => ((j[key] as List<dynamic>?) ?? const []).cast<String>();
@@ -128,12 +184,53 @@ class Book {
       ..query = j['query'] as String?
       ..customCover = j['customCover'] as String?
       ..added = j['added'] as int? ?? 0
-      ..opened = j['opened'] as int? ?? 0;
+      ..opened = j['opened'] as int? ?? 0
+      ..rating = j['rating'] as int? ?? 0
+      ..secondsPerPage = (j['secondsPerPage'] as num?)?.toDouble() ?? 0
+      ..highlights.addAll(((j['highlights'] as List<dynamic>?) ?? const []).map((e) => Highlight.fromJson(e as Map<String, dynamic>)));
   }
 }
 
+/// Writes [file] through a copy beside it, so it is either the old text or the new, never a part.
+void writeWhole(File file, String text) {
+  final temp = File('${file.path}.new')..writeAsStringSync(text, flush: true);
+  temp.renameSync(file.path);
+}
+
+/// A marked sentence. Pages move when the font or the screen changes, so it is found again by its text near where it was.
+class Highlight {
+  Highlight(this.text, this.at, this.color, {this.note, int? made}) : made = made ?? DateTime.now().millisecondsSinceEpoch;
+  final String text;
+
+  /// How far through the book it is, 0 to 1.
+  final double at;
+  int color;
+  String? note;
+  final int made;
+
+  Map<String, dynamic> toJson() => {'text': text, 'at': at, 'color': color, 'note': note, 'made': made};
+  static Highlight fromJson(Map<String, dynamic> j) =>
+      Highlight(j['text'] as String, (j['at'] as num).toDouble(), j['color'] as int, note: j['note'] as String?, made: j['made'] as int?);
+
+  /// Whether a sentence on a page is this one; a sentence cut by a page break counts by its part.
+  bool matches(String sentence) =>
+      sentence == text || (sentence.length >= 15 && text.contains(sentence)) || (text.length >= 15 && sentence.contains(text));
+}
+
+/// The highlighter colours, the first being the default.
+const highlightColors = [0xFFF2C94C, 0xFF7BC67E, 0xFF6FA8DC, 0xFFE58FB0];
+
 class Library extends ChangeNotifier {
   final books = <Book>[];
+
+  /// Goes up with every change shown, so views can keep what they worked out until the next one.
+  int revision = 0;
+
+  @override
+  void notifyListeners() {
+    revision++;
+    super.notifyListeners();
+  }
 
   /// The reader's own lists, in the order they were made. A list may be empty.
   final listNames = <String>[];
@@ -145,14 +242,38 @@ class Library extends ChangeNotifier {
   Future<void> load() async {
     _dir = await getApplicationDocumentsDirectory();
     if (_index.existsSync()) {
-      final list = jsonDecode(_index.readAsStringSync()) as List<dynamic>;
-      books.addAll(list.map((e) => Book.fromJson(e as Map<String, dynamic>)).where((b) => File(b.path).existsSync()));
+      try {
+        final list = jsonDecode(_index.readAsStringSync()) as List<dynamic>;
+        books.addAll(list.map((e) => Book.fromJson(e as Map<String, dynamic>)).where((b) => File(b.path).existsSync()));
+      } on FormatException {
+        // Before 0.1.9 a write cut short could leave it empty; the books themselves are found again below.
+        _index.renameSync('${_index.path}.broken');
+      }
       // Books from before 0.1.7 have no date added; the copy's file date is when it came in.
       for (final b in books.where((b) => b.added == 0)) {
         b.added = File(b.path).statSync().modified.millisecondsSinceEpoch;
       }
     }
-    if (_lists.existsSync()) listNames.addAll((jsonDecode(_lists.readAsStringSync()) as List<dynamic>).cast<String>());
+    if (_lists.existsSync()) {
+      try {
+        listNames.addAll((jsonDecode(_lists.readAsStringSync()) as List<dynamic>).cast<String>());
+      } on FormatException {
+        _lists.deleteSync();
+      }
+    }
+    // A book file the library does not list (its entry was lost) comes back, without its reading place.
+    final folder = Directory(p.join(_dir.path, 'books'));
+    if (folder.existsSync()) {
+      final known = {for (final b in books) b.path};
+      for (final f in folder.listSync().whereType<File>()) {
+        if (known.contains(f.path) || !supportedExtensions.contains(p.extension(f.path).toLowerCase())) continue;
+        try {
+          await _add(f.path);
+        } catch (_) {
+          // a file that cannot be opened stays where it is
+        }
+      }
+    }
     // Each sample arrives once; one that was removed from the library stays removed.
     final seen = File(p.join(_dir.path, 'samples-added.txt'));
     final added = seen.existsSync() ? seen.readAsLinesSync().toSet() : <String>{};
@@ -182,12 +303,13 @@ class Library extends ChangeNotifier {
     _saving = Timer(const Duration(milliseconds: 600), flush);
   }
 
-  /// Writes the library now; called when the app goes to the background.
+  /// Writes the library now; called when the app goes to the background. At once and whole, since the app
+  /// may be closed right after: a write cut short must never leave half a file.
   Future<void> flush() async {
     _saving?.cancel();
     _saving = null;
-    await _index.writeAsString(jsonEncode(books));
-    await _lists.writeAsString(jsonEncode(listNames));
+    writeWhole(_index, jsonEncode(books));
+    writeWhole(_lists, jsonEncode(listNames));
   }
 
   bool _filling = false;
@@ -286,7 +408,9 @@ class Library extends ChangeNotifier {
   /// Copies a picked file into the app and adds it; false when the very same file is already in the library.
   /// A different file with the same name is kept under a new name, so no book is ever replaced.
   /// Throws a [FormatException] the UI can show.
-  Future<bool> import(String from) async {
+  /// Copies a book into the library. With [opf] and [cover] (Calibre keeps them beside each book) its facts
+  /// and cover come from there.
+  Future<bool> import(String from, {String? opf, String? cover}) async {
     final ext = p.extension(from).toLowerCase();
     if (!supportedExtensions.contains(ext)) throw FormatException('${tr('Bu biçim henüz desteklenmiyor')}: $ext');
     final picked = File(from);
@@ -299,6 +423,17 @@ class Library extends ChangeNotifier {
     await to.create(recursive: true);
     await picked.copy(to.path);
     await _add(to.path);
+    if (opf != null) {
+      try {
+        final m = readOpf(await File(opf).readAsString());
+        final b = books.first;
+        if (m.fields['title'] case final t?) b.title = t;
+        _take(b, m, replace: true);
+      } catch (_) {
+        // a broken metadata.opf leaves what the book itself says
+      }
+    }
+    if (cover != null) await setCover(books.first, cover);
     await save();
     notifyListeners();
     fillIn();
@@ -429,10 +564,19 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
   /// Search text, folded; null while the search field is closed.
   String? _search;
 
+  /// The books picked for a change to all of them at once; null when not picking.
+  Set<Book>? _picking;
+
+  void _togglePick(Book b) => setState(() {
+        if (!_picking!.remove(b)) _picking!.add(b);
+      });
+
   @override
   void initState() {
     super.initState();
     library.fillIn();
+    openRequest.addListener(_openRequested);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openRequested());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!motionOn(context, settings)) {
@@ -451,6 +595,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
 
   @override
   void dispose() {
+    openRequest.removeListener(_openRequested);
     _enter.dispose();
     _intro.dispose();
     super.dispose();
@@ -475,6 +620,32 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
       if (already.isNotEmpty) '${tr('Zaten kitaplıkta')}: ${already.join(', ')}',
     ];
     if (notes.isNotEmpty) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(notes.join('\n'))));
+  }
+
+  Future<void> _fromFolder() async {
+    setState(() => _importing = true);
+    try {
+      final done = await importFolder();
+      if (done != null && mounted) {
+        final (added, failed) = done;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(['${tr('Eklenen kitap')}: $added', if (failed.isNotEmpty) '${tr('Açılamadı')}: ${failed.join(', ')}'].join('\n'))));
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  void _openRequested() {
+    final (path, speak) = openRequest.value ?? ('', false);
+    final b = library.books.where((b) => b.path == path).firstOrNull;
+    if (b == null || !mounted) return;
+    openRequest.value = null;
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    b.opened = DateTime.now().millisecondsSinceEpoch;
+    Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(book: b, coverRect: () => null, speak: speak)))
+        .then((_) => library.moveToFront(b));
   }
 
   void _open(Book b, GlobalKey cover) {
@@ -531,10 +702,21 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
         builder: (_) => const FractionallySizedBox(heightFactor: 0.72, child: SettingsSheet(isPdf: false, initialTab: 5)),
       );
 
+  /// Each book's searchable text, folded once per library change instead of on every keystroke.
+  final _folded = <Book, String>{};
+  int _foldedAt = -1;
+
+  String _foldedText(Book b) {
+    if (_foldedAt != library.revision) {
+      _folded.clear();
+      _foldedAt = library.revision;
+    }
+    return _folded[b] ??= foldForSearch([b.title, ...b.info.values.where((v) => v.length < 200), ...b.tags].join('\n'));
+  }
+
   bool _matches(Book b) =>
       _more.matches(b) &&
-      (_search == null ||
-          foldForSearch([b.title, ...b.info.values.where((v) => v.length < 200), ...b.tags].join('\n')).contains(_search!)) &&
+      (_search == null || _foldedText(b).contains(_search!)) &&
       switch (_filter) {
         'all' => true,
         'fav' => b.favorite,
@@ -568,7 +750,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
       height: 40,
       child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 24), children: [
         chip('all', tr('Tümü')),
-        chip('fav', tr('Favoriler'), icon: Icons.star_rounded),
+        chip('fav', tr('Favoriler'), icon: Icons.favorite_rounded),
         for (final l in library.listNames)
           chip('list:$l', l, icon: Icons.bookmarks_outlined, onLong: () => _listMenu(l)),
         ActionChip(
@@ -619,6 +801,33 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
     return settings.sortDescending ? keys.reversed.toList() : keys;
   }
 
+  Object? _shownFor;
+  List<Book> _shownBooks = const [];
+  Map<String, List<Book>> _shownSections = const {};
+
+  /// The books on show, sorted, and by category when sorted so; worked out again only when something they depend on changed.
+  List<Book> _shown() {
+    final s = settings;
+    final key = (library.revision, s.sortBy, s.sortDescending, s.uiLanguage, _filter, _search, _more.signature);
+    if (key == _shownFor) return _shownBooks;
+    _shownFor = key;
+    _shownBooks = sortBooks(library.books.where(_matches).toList(), s.sortBy, s.sortDescending);
+    _shownSections = switch (s.sortBy) {
+      SortBy.category => {
+          for (final k in _sections(_shownBooks)) tr(k): sortBooks(_shownBooks.where((b) => b.shelves.contains(k)).toList(), SortBy.title, false),
+        },
+      // A section per series, its books by number; books in no series after them.
+      SortBy.series => {
+          for (final b in _shownBooks) b.info['series'] ?? tr('Seride değil'): [
+            for (final x in _shownBooks)
+              if ((x.info['series'] ?? tr('Seride değil')) == (b.info['series'] ?? tr('Seride değil'))) x,
+          ]..sort((x, y) => volumeOf(x).compareTo(volumeOf(y))),
+        },
+      _ => const {},
+    };
+    return _shownBooks;
+  }
+
   /// Search, how many books show, how they are ordered, grid or list, and the way to narrow them further.
   Widget _toolbar(Palette c, int shown) {
     final s = settings;
@@ -654,6 +863,11 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
           icon: Icon(s.libraryList ? Icons.grid_view_rounded : Icons.view_list_rounded, color: c.muted, size: 22),
         ),
         IconButton(
+          tooltip: tr('Seç'),
+          onPressed: () => setState(() => _picking = {}),
+          icon: Icon(Icons.checklist_rounded, color: c.muted, size: 22),
+        ),
+        IconButton(
           tooltip: tr('Filtrele'),
           onPressed: () => showShelfSheet(context, (_) => FilterSheet(filter: _more, onChanged: () => setState(() {}))),
           icon: Badge(
@@ -667,6 +881,152 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
     );
   }
 
+  /// In place of the toolbar while picking: how many are picked, and what can be done to all of them.
+  Widget _pickBar(Palette c, List<Book> shown) {
+    final picked = _picking!;
+    final all = shown.isNotEmpty && shown.every(picked.contains);
+    bool? state(bool Function(Book) has) => picked.every(has) ? true : (picked.any(has) ? null : false);
+    void flip(bool Function(Book) has, void Function(Book, bool) set) {
+      final on = !picked.every(has);
+      for (final b in picked) {
+        set(b, on);
+      }
+      library.changed();
+    }
+
+    Widget menu(IconData icon, String tip, List<Widget> items) => MenuAnchor(
+          menuChildren: items,
+          builder: (context, m, _) => IconButton(
+            tooltip: tr(tip),
+            onPressed: picked.isEmpty ? null : () => m.isOpen ? m.close() : m.open(),
+            icon: Icon(icon, color: c.ink, size: 22),
+          ),
+        );
+    CheckboxMenuButton tick(String label, bool Function(Book) has, void Function(Book, bool) set) => CheckboxMenuButton(
+          value: picked.isEmpty ? false : state(has),
+          tristate: true,
+          closeOnActivate: false,
+          onChanged: (_) => flip(has, set),
+          child: Text(label),
+        );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+      child: Row(children: [
+        IconButton(
+          tooltip: tr('Seçmeyi bitir'),
+          onPressed: () => setState(() => _picking = null),
+          icon: Icon(Icons.close, color: c.accent, size: 22),
+        ),
+        Expanded(child: Text('${picked.length} ${tr('seçili')}', style: TextStyle(color: c.ink, fontSize: 14))),
+        TextButton(
+          onPressed: () => setState(() => all ? picked.clear() : picked.addAll(shown)),
+          style: TextButton.styleFrom(foregroundColor: c.accent, padding: const EdgeInsets.symmetric(horizontal: 8)),
+          child: Text(tr(all ? 'Hiçbiri' : 'Tümü')),
+        ),
+        IconButton(
+          tooltip: tr('Favori'),
+          onPressed: picked.isEmpty ? null : () => flip((b) => b.favorite, (b, on) => b.favorite = on),
+          icon: Icon(picked.isNotEmpty && picked.every((b) => b.favorite) ? Icons.favorite_rounded : Icons.favorite_border_rounded, color: c.ink, size: 22),
+        ),
+        menu(Icons.bookmarks_outlined, 'Listeler', [
+          for (final l in library.listNames) tick(l, (b) => b.lists.contains(l), (b, on) => on ? b.lists.add(l) : b.lists.remove(l)),
+          MenuItemButton(
+            leadingIcon: Icon(Icons.add, size: 18, color: c.accent),
+            onPressed: () async {
+              final name = await _newList();
+              if (name == null) return;
+              for (final b in picked) {
+                b.lists.add(name);
+              }
+              library.changed();
+            },
+            child: Text(tr('Yeni liste'), style: TextStyle(color: c.accent)),
+          ),
+        ]),
+        menu(Icons.category_outlined, 'Kategoriler', [
+          for (final k in categories) tick(tr(k), (b) => b.categories.contains(k), (b, on) => on ? b.categories.add(k) : b.categories.remove(k)),
+        ]),
+        IconButton(
+          tooltip: tr('Kitaplıktan kaldır'),
+          onPressed: picked.isEmpty ? null : () => _removePicked(c),
+          icon: Icon(Icons.delete_outline, color: c.ink, size: 22),
+        ),
+      ]),
+    );
+  }
+
+  Future<void> _removePicked(Palette c) async {
+    final picked = _picking!.toList();
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: c.paper,
+        title: Text('${picked.length} ${tr('kitap kaldırılsın mı?')}', style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 20)),
+        content: Text(tr('Dosyaları, kapakları, notları ve okuma yerleri silinir.'), style: TextStyle(color: c.muted)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(tr('Vazgeç'))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text(tr('Kaldır'))),
+        ],
+      ),
+    );
+    if (sure != true) return;
+    for (final b in picked) {
+      await library.remove(b);
+    }
+    if (mounted) setState(() => _picking = null);
+  }
+
+  /// What is new since the last version the reader saw; gone for good once closed.
+  Widget _news(Palette c) => Container(
+        padding: const EdgeInsets.fromLTRB(16, 10, 6, 14),
+        decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(6)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text('$appVersion ${tr('sürümünde yeni')}', style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 18))),
+            IconButton(
+              tooltip: tr('Kapat'),
+              icon: Icon(Icons.close, color: c.muted, size: 20),
+              onPressed: () => settings.update((x) => x.seenVersion = appVersion),
+            ),
+          ]),
+          for (final line in whatsNew)
+            Padding(
+              padding: const EdgeInsets.only(right: 12, top: 4),
+              child: Text('•  ${tr(line)}', style: TextStyle(color: c.ink, fontSize: 13.5, height: 1.35)),
+            ),
+        ]),
+      );
+
+  /// Books added in the last two weeks, newest first, on a shelf of their own; only once the library has others too.
+  List<Widget> _recent(Palette c) {
+    final since = DateTime.now().subtract(const Duration(days: 14)).millisecondsSinceEpoch;
+    final recent = (library.books.where((b) => b.added > since).toList()..sort((a, b) => b.added.compareTo(a.added))).take(12).toList();
+    if (recent.isEmpty || recent.length == library.books.length) return const [];
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
+        sliver: SliverToBoxAdapter(child: Text(tr('Son eklenenler'), style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 19))),
+      ),
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height: 190,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            itemCount: recent.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 14),
+            itemBuilder: (context, i) => SizedBox(
+              width: 96,
+              child: _BookCard(book: recent[i], onOpen: _open, onLong: () => _details(recent[i])),
+            ),
+          ),
+        ),
+      ),
+      const SliverToBoxAdapter(child: SizedBox(height: 22)),
+    ];
+  }
+
   Widget _grid(List<Book> books, int columns, int from) => settings.libraryList
       ? SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -676,7 +1036,12 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
               key: ValueKey(books[i].path),
               parent: _enter,
               index: from + i,
-              child: _BookRow(book: books[i], onOpen: _open, onLong: () => _details(books[i])),
+              child: _BookRow(
+                book: books[i],
+                picked: _picking?.contains(books[i]),
+                onOpen: _picking == null ? _open : (b, _) => _togglePick(b),
+                onLong: () => _picking == null ? _details(books[i]) : _togglePick(books[i]),
+              ),
             ),
           ),
         )
@@ -696,7 +1061,12 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
               key: ValueKey(b.path),
               parent: _enter,
               index: from + i,
-              child: _BookCard(book: b, onOpen: _open, onLong: () => _details(b)),
+              child: _BookCard(
+                book: b,
+                picked: _picking?.contains(b),
+                onOpen: _picking == null ? _open : (b, _) => _togglePick(b),
+                onLong: () => _picking == null ? _details(b) : _togglePick(b),
+              ),
             );
           },
         ),
@@ -707,7 +1077,12 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
     final c = settings.palette;
     final width = MediaQuery.sizeOf(context).width;
     final columns = (width / 150).floor().clamp(2, 8);
-    return Scaffold(
+    return PopScope(
+      canPop: _picking == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(() => _picking = null);
+      },
+      child: Scaffold(
       body: Stack(children: [
         SafeArea(
           child: ListenableBuilder(
@@ -717,7 +1092,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
               final latest = library.books.where((b) => b.total > 0).firstOrNull;
               // A list that went away takes its filter with it.
               if (_filter.startsWith('list:') && !library.listNames.contains(_filter.substring(5))) _filter = 'all';
-              final shown = sortBooks(library.books.where(_matches).toList(), settings.sortBy, settings.sortDescending);
+              final shown = _shown();
               return CustomScrollView(
               slivers: [
                 SliverPadding(
@@ -733,14 +1108,29 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                         child: _Entering(
                           parent: _enter,
                           index: 0,
-                          child: Text(tr('Kitaplık'),
-                              style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 32, height: 1.1)),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(tr('Kitaplık'),
+                                style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 32, height: 1.1)),
+                          ),
                         ),
                       ),
                       _Entering(
                         parent: _enter,
                         index: 0,
                         child: IconButton(
+                          tooltip: tr('Okuma istatistikleri'),
+                          visualDensity: VisualDensity.compact,
+                          icon: Icon(Icons.insights_outlined, color: c.muted, size: 21),
+                          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const StatsScreen())),
+                        ),
+                      ),
+                      _Entering(
+                        parent: _enter,
+                        index: 0,
+                        child: IconButton(
+                          visualDensity: VisualDensity.compact,
                           tooltip: tr('Galeri'),
                           icon: Icon(Icons.photo_library_outlined, color: c.muted, size: 21),
                           onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GalleryScreen())),
@@ -750,6 +1140,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                         parent: _enter,
                         index: 0,
                         child: IconButton(
+                          visualDensity: VisualDensity.compact,
                           tooltip: tr('Ayarlar'),
                           icon: Icon(Icons.tune_rounded, color: c.muted, size: 21),
                           onPressed: _settings,
@@ -767,15 +1158,32 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                         _Entering(
                           parent: _enter,
                           index: 0,
-                          child: TextButton(
-                            onPressed: _pick,
-                            style: TextButton.styleFrom(foregroundColor: c.accent),
-                            child: Text(tr('Kitap ekle')),
+                          child: MenuAnchor(
+                            builder: (_, menu, _) => TextButton(
+                              onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+                              style: TextButton.styleFrom(foregroundColor: c.accent),
+                              child: Text(tr('Kitap ekle')),
+                            ),
+                            menuChildren: [
+                              MenuItemButton(leadingIcon: const Icon(Icons.description_outlined), onPressed: _pick, child: Text(tr('Dosya seç'))),
+                              MenuItemButton(
+                                  leadingIcon: const Icon(Icons.folder_open_outlined), onPressed: _fromFolder, child: Text(tr('Klasörden (Calibre da)'))),
+                              MenuItemButton(
+                                leadingIcon: const Icon(Icons.wifi_rounded),
+                                onPressed: () => showModalBottomSheet<void>(context: context, builder: (_) => const WifiSheet()),
+                                child: Text(tr('Bilgisayardan Wi-Fi ile')),
+                              ),
+                            ],
                           ),
                         ),
                     ]),
                   ),
                 ),
+                if (settings.seenVersion != appVersion)
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 18),
+                    sliver: SliverToBoxAdapter(child: _news(c)),
+                  ),
                 if (latest != null)
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(24, 0, 24, 26),
@@ -793,10 +1201,11 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                     child: _Entering(
                       parent: _enter,
                       index: 1,
-                      child: Column(children: [_filters(c), _toolbar(c, shown.length)]),
+                      child: Column(children: [_filters(c), _picking == null ? _toolbar(c, shown.length) : _pickBar(c, shown)]),
                     ),
                   ),
                 ),
+                if (_filter == 'all' && _search == null && _more.count == 0 && _picking == null) ..._recent(c),
                 if (shown.isEmpty)
                   SliverToBoxAdapter(
                     child: Padding(
@@ -805,24 +1214,24 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                           tr(_more.count > 0
                               ? 'Bu filtrelere uyan kitap yok.'
                               : _filter == 'fav'
-                                  ? 'Favori yok. Bir kitaba uzun basıp yıldızla.'
+                                  ? 'Favori yok. Bir kitaba uzun basıp kalbe dokun.'
                                   : 'Burada kitap yok. Bir kitaba uzun basıp ekle.'),
                           textAlign: TextAlign.center,
                           style: TextStyle(color: c.muted, fontSize: 14)),
                     ),
                   )
-                else if (settings.sortBy != SortBy.category)
+                else if (_shownSections.isEmpty)
                   _grid(shown, columns, 2)
                 else
                   // By category: a section per category, a book in each of its categories, titles A to Z inside.
-                  for (final k in _sections(shown)) ...[
+                  for (final MapEntry(key: k, value: books) in _shownSections.entries) ...[
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(24, 6, 24, 14),
                       sliver: SliverToBoxAdapter(
-                        child: Text(tr(k), style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 21)),
+                        child: Text(k, style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 21)),
                       ),
                     ),
-                    _grid(sortBooks(shown.where((b) => b.shelves.contains(k)).toList(), SortBy.title, false), columns, 2),
+                    _grid(books, columns, 2),
                     const SliverToBoxAdapter(child: SizedBox(height: 26)),
                   ],
                 const SliverToBoxAdapter(child: SizedBox(height: 40)),
@@ -833,6 +1242,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
         ),
         if (!_introDone) _introOverlay(c),
       ]),
+      ),
     );
   }
 
@@ -938,10 +1348,13 @@ class _ContinueCardState extends State<_ContinueCard> {
 }
 
 class _BookCard extends StatefulWidget {
-  const _BookCard({required this.book, required this.onOpen, required this.onLong});
+  const _BookCard({required this.book, required this.onOpen, required this.onLong, this.picked});
   final Book book;
   final void Function(Book, GlobalKey) onOpen;
   final VoidCallback onLong;
+
+  /// While books are being picked: whether this one is; null otherwise.
+  final bool? picked;
   @override
   State<_BookCard> createState() => _BookCardState();
 }
@@ -962,14 +1375,14 @@ class _BookCardState extends State<_BookCard> {
         children: [
           Expanded(
             child: Stack(fit: StackFit.expand, children: [
-              SizedBox(key: _cover, width: double.infinity, child: BookCover(book: b)),
+              SizedBox(key: _cover, width: double.infinity, child: _withTick(widget.picked, BookCover(book: b))),
               if (b.favorite)
                 Positioned(
                   left: 6,
                   top: 6,
                   child: DecoratedBox(
                     decoration: BoxDecoration(color: c.paper.withValues(alpha: 0.85), shape: BoxShape.circle),
-                    child: Padding(padding: const EdgeInsets.all(3), child: Icon(Icons.star_rounded, size: 16, color: c.accent)),
+                    child: Padding(padding: const EdgeInsets.all(3), child: Icon(Icons.favorite_rounded, size: 15, color: c.accent)),
                   ),
                 ),
             ]),
@@ -992,10 +1405,13 @@ class _BookCardState extends State<_BookCard> {
 
 /// A book as one row of the list view: cover, title, author, and how far it has been read.
 class _BookRow extends StatefulWidget {
-  const _BookRow({required this.book, required this.onOpen, required this.onLong});
+  const _BookRow({required this.book, required this.onOpen, required this.onLong, this.picked});
   final Book book;
   final void Function(Book, GlobalKey) onOpen;
   final VoidCallback onLong;
+
+  /// While books are being picked: whether this one is; null otherwise.
+  final bool? picked;
   @override
   State<_BookRow> createState() => _BookRowState();
 }
@@ -1014,7 +1430,7 @@ class _BookRowState extends State<_BookRow> {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(children: [
-          SizedBox(key: _cover, width: 46, height: 66, child: BookCover(book: b, ribbon: false)),
+          SizedBox(key: _cover, width: 46, height: 66, child: _withTick(widget.picked, BookCover(book: b, ribbon: false))),
           const SizedBox(width: 14),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1023,7 +1439,7 @@ class _BookRowState extends State<_BookRow> {
                   child: Text(b.title,
                       maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.ink, fontSize: 15, fontWeight: FontWeight.w500)),
                 ),
-                if (b.favorite) Icon(Icons.star_rounded, size: 16, color: c.accent),
+                if (b.favorite) Icon(Icons.favorite_rounded, size: 15, color: c.accent),
               ]),
               if (b.info['author'] case final author?)
                 Text(author, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.muted, fontSize: 13)),
@@ -1044,6 +1460,24 @@ class _BookRowState extends State<_BookRow> {
       ),
     );
   }
+}
+
+/// While books are being picked, a tick on the cover, filled for the picked ones.
+Widget _withTick(bool? picked, Widget cover) {
+  if (picked == null) return cover;
+  final c = settings.palette;
+  return Stack(fit: StackFit.expand, children: [
+    cover,
+    if (picked) DecoratedBox(decoration: BoxDecoration(color: c.accent.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(4))),
+    Positioned(
+      right: 3,
+      bottom: 3,
+      child: DecoratedBox(
+        decoration: BoxDecoration(color: c.paper, shape: BoxShape.circle),
+        child: Icon(picked ? Icons.check_circle : Icons.radio_button_unchecked, size: 20, color: picked ? c.accent : c.muted),
+      ),
+    ),
+  ]);
 }
 
 /// A book's cover with the bookmark ribbon that shows how far it has been read.

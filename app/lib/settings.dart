@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -157,16 +158,48 @@ enum SortBy {
   title('Kitap adı'),
   author('Yazar'),
   publisher('Yayınevi'),
-  category('Kategori');
+  category('Kategori'),
+  rating('Puan'),
+  series('Seri');
 
   const SortBy(this.label);
   final String label;
-  bool get newestFirst => index < 3;
+
+  /// Dates and ratings start from the top; names start from A.
+  bool get newestFirst => index < 3 || this == rating;
 }
+
+const appVersion = '0.2.0';
+
+/// What is new in [appVersion], shown once after an update.
+const whatsNew = [
+  'Kitaplara 1-5 yıldız puan; favoriler artık kalp. Seriler cilt sırasıyla gruplanır.',
+  'Son eklenenler rafı ve ana ekran için kitaplık rafı (son 3 ya da son 5 kitap, sesli okuma düğmesiyle).',
+  'Vurgular, notlar ve sözlük: metinde bir kelimeye uzun bas. Alıntıyı görsel olarak paylaş.',
+  'Sesli okuma: kilit ekranından ve kulaklıktan kontrol, müzik kapanmaz kısılır, kulaklık çıkınca durur.',
+  'Bilgisayardan Wi-Fi ile, bir klasörden ya da Calibre kitaplığından kitap al; izlenen klasöre konan kitaplar kendiliğinden gelir.',
+  'Çizgi romanlarda panel panel okuma.',
+  'Okuma istatistikleri, günlük hedef, bölümde ve kitapta kalan süre.',
+  'Saate göre koyu tema, sol kenarda kaydırarak parlaklık, kapağın renginde üst çubuk.',
+  'Kitaplıkta çoklu seçim; hata günlüğünü kaydedip gönderebilirsin.',
+];
 
 class Settings extends ChangeNotifier {
   PaperTheme theme = PaperTheme.paper;
   bool dark = false;
+
+  /// Dark between [nightFrom] and [nightTo] (minutes after midnight), light the rest of the day, instead of [dark].
+  bool autoNight = false;
+  int nightFrom = 21 * 60, nightTo = 7 * 60;
+
+  /// Whether pages are dark now, by the reader's choice or by the clock.
+  bool get darkNow {
+    if (!autoNight) return dark;
+    final now = DateTime.now(), m = now.hour * 60 + now.minute;
+    return nightFrom <= nightTo ? m >= nightFrom && m < nightTo : m >= nightFrom || m < nightTo;
+  }
+
+  bool _wasDark = false;
   TurnMode mode = TurnMode.flip;
   double scrollGap = 2;
   double fontSize = 18;
@@ -177,9 +210,22 @@ class Settings extends ChangeNotifier {
   Color? inkOverride;
   bool bold = false, italic = false;
   bool volumeKeys = true, invertVolume = false;
+
+  /// A folder whose new books come into the library on their own, and the files already seen in it.
+  String? watchedFolder;
+  Set<String> seenInFolder = {};
+
+  /// Sliding a finger up or down the left edge sets the screen's brightness while reading.
+  bool edgeBrightness = true;
+
+  /// The brightness chosen that way, 0 to 1; below 0 the phone's own.
+  double brightness = -1;
   bool reflow = false;
   bool actualBook = false;
   bool menuHintSeen = false;
+
+  /// The app version whose news the reader has seen; a new install starts on the current one.
+  String seenVersion = appVersion;
   double imageSaturation = 1, imageContrast = 1, imageSharpen = 0;
   bool imageUpscale = false;
   ColorizeMode colorizeMode = ColorizeMode.onDemand;
@@ -191,6 +237,9 @@ class Settings extends ChangeNotifier {
   bool onlineLookup = true;
   SortBy sortBy = SortBy.opened;
   bool libraryList = false;
+
+  /// Comics: one panel at a time, zoomed to fill the screen.
+  bool panels = false;
   bool sortDescending = true;
   VoiceSource voiceSource = VoiceSource.system;
   String? ttsModelId;
@@ -203,7 +252,7 @@ class Settings extends ChangeNotifier {
     ..ink = const Color(0xFFF2F2F2);
   TapLayout zones = TapLayout.standard();
 
-  CustomPaper get custom => dark ? customDark : customLight;
+  CustomPaper get custom => darkNow ? customDark : customLight;
 
   Palette paletteFor(PaperTheme t, bool isDark) {
     if (t != PaperTheme.custom) return palettes[(t, isDark)]!;
@@ -211,7 +260,7 @@ class Settings extends ChangeNotifier {
     return Palette(c.paper, c.ink, Color.lerp(c.ink, c.paper, 0.32)!, 0);
   }
 
-  Palette get palette => paletteFor(theme, dark);
+  Palette get palette => paletteFor(theme, darkNow);
   bool get isEink => theme == PaperTheme.eink;
 
   /// E-ink panels get no filters at all, whatever else is on.
@@ -241,6 +290,11 @@ class Settings extends ChangeNotifier {
   late final Directory dir;
 
   Future<void> load() async {
+    // By the clock, the pages change at the set times without a restart.
+    Timer.periodic(const Duration(minutes: 1), (_) {
+      if (autoNight && darkNow != _wasDark) notifyListeners();
+      _wasDark = darkNow;
+    });
     dir = await getApplicationDocumentsDirectory();
     _file = File(p.join(dir.path, 'settings.json'));
     if (!_file.existsSync()) return;
@@ -248,6 +302,9 @@ class Settings extends ChangeNotifier {
       final j = jsonDecode(_file.readAsStringSync()) as Map<String, dynamic>;
       theme = PaperTheme.values.byName(j['theme'] as String);
       dark = j['dark'] as bool;
+      autoNight = j['autoNight'] as bool? ?? false;
+      nightFrom = j['nightFrom'] as int? ?? nightFrom;
+      nightTo = j['nightTo'] as int? ?? nightTo;
       mode = TurnMode.values.byName(j['mode'] as String);
       scrollGap = (j['scrollGap'] as num).toDouble();
       fontSize = (j['fontSize'] as num).toDouble();
@@ -256,10 +313,15 @@ class Settings extends ChangeNotifier {
       bold = j['bold'] as bool;
       italic = j['italic'] as bool;
       volumeKeys = j['volumeKeys'] as bool;
+      edgeBrightness = j['edgeBrightness'] as bool? ?? true;
+      watchedFolder = j['watchedFolder'] as String?;
+      seenInFolder = {...(j['seenInFolder'] as List<dynamic>? ?? []).cast<String>()};
+      brightness = (j['brightness'] as num?)?.toDouble() ?? -1;
       invertVolume = j['invertVolume'] as bool;
       reflow = j['reflow'] as bool;
       actualBook = j['actualBook'] as bool;
       menuHintSeen = j['menuHintSeen'] as bool? ?? false;
+      seenVersion = j['seenVersion'] as String? ?? '';
       margin = (j['margin'] as num?)?.toDouble() ?? margin;
       justify = j['justify'] as bool? ?? justify;
       final ink = j['inkOverride'] as int?;
@@ -280,6 +342,7 @@ class Settings extends ChangeNotifier {
       sortBy = SortBy.values.asNameMap()[j['sortBy']] ?? (j['groupByCategory'] == true ? SortBy.category : SortBy.opened);
       sortDescending = j['sortDescending'] as bool? ?? sortBy.newestFirst;
       libraryList = j['libraryList'] as bool? ?? false;
+      panels = j['panels'] as bool? ?? false;
       voiceSource = VoiceSource.values.byName(j['voiceSource'] as String? ?? 'system');
       ttsModelId = j['ttsModelId'] as String?;
       ttsVoice = j['ttsVoice'] as int? ?? 0;
@@ -300,6 +363,9 @@ class Settings extends ChangeNotifier {
     _file.writeAsString(jsonEncode({
       'theme': theme.name,
       'dark': dark,
+      'autoNight': autoNight,
+      'nightFrom': nightFrom,
+      'nightTo': nightTo,
       'mode': mode.name,
       'scrollGap': scrollGap,
       'fontSize': fontSize,
@@ -308,10 +374,15 @@ class Settings extends ChangeNotifier {
       'bold': bold,
       'italic': italic,
       'volumeKeys': volumeKeys,
+      'edgeBrightness': edgeBrightness,
+      'watchedFolder': watchedFolder,
+      'seenInFolder': seenInFolder.toList(),
+      'brightness': brightness,
       'invertVolume': invertVolume,
       'reflow': reflow,
       'actualBook': actualBook,
       'menuHintSeen': menuHintSeen,
+      'seenVersion': seenVersion,
       'margin': margin,
       'justify': justify,
       'inkOverride': inkOverride?.toARGB32(),
@@ -332,6 +403,7 @@ class Settings extends ChangeNotifier {
       'sortBy': sortBy.name,
       'sortDescending': sortDescending,
       'libraryList': libraryList,
+      'panels': panels,
       'voiceSource': voiceSource.name,
       'ttsModelId': ttsModelId,
       'ttsVoice': ttsVoice,

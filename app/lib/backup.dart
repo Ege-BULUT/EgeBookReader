@@ -6,7 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import 'main.dart' show Book, library;
+import 'main.dart' show Book, library, settings;
+import 'settings.dart' show appVersion;
 
 const _device = MethodChannel('egebookreader/volume');
 
@@ -43,9 +44,33 @@ Future<File> writeBackup() async {
   return out;
 }
 
-/// Lets the reader choose where the backup goes (Android's save dialog) and copies it there. False if they cancelled.
-Future<bool> saveBackupAs(File backup) async =>
-    await _device.invokeMethod<bool>('saveDocument', {'path': backup.path, 'name': p.basename(backup.path)}) ?? false;
+/// Errors the app met, newest last, kept on the device so the reader can send them if they choose to.
+File get errorLog => File(p.join(settings.dir.path, 'errors.log'));
+
+void logError(Object error, StackTrace? stack) {
+  try {
+    final log = errorLog;
+    // ponytail: at 256 KB the older half goes; enough to see what happened lately.
+    if (log.existsSync() && log.lengthSync() > 256 * 1024) {
+      final text = log.readAsStringSync();
+      log.writeAsStringSync(text.substring(text.length ~/ 2));
+    }
+    log.writeAsStringSync('--- ${DateTime.now().toIso8601String()} · $appVersion\n$error\n${stack ?? ''}\n', mode: FileMode.append);
+  } catch (_) {
+    // a log that cannot be written must never cause an error of its own
+  }
+}
+
+/// A copy of the error log saved where the reader chooses; false if there is none or they cancelled.
+Future<bool> saveErrorLog() async {
+  if (!errorLog.existsSync()) return false;
+  final copy = await errorLog.copy(p.join((await getApplicationCacheDirectory()).path, 'EgeBookReader-errors.txt'));
+  return saveFileAs(copy);
+}
+
+/// Lets the reader choose where a file goes (Android's save dialog) and copies it there. False if they cancelled.
+Future<bool> saveFileAs(File file) async =>
+    await _device.invokeMethod<bool>('saveDocument', {'path': file.path, 'name': p.basename(file.path)}) ?? false;
 
 /// Adds the books in a backup that the library does not have yet, with their progress, tags, lists and covers.
 /// Books already here (same file name and size) are left as they are. Returns how many were added.

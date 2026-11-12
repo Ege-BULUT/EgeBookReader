@@ -17,6 +17,45 @@ class MainActivity : FlutterActivity() {
     private var reading = false
     private var channel: MethodChannel? = null
     private var pendingSave: Pair<String, MethodChannel.Result>? = null
+    private var pendingFolder: MethodChannel.Result? = null
+
+    /** Off the main thread, then the answer back on it. */
+    private fun inBackground(result: MethodChannel.Result, work: () -> Any?) = Thread {
+        try {
+            val value = work()
+            runOnUiThread { result.success(value) }
+        } catch (e: Exception) {
+            runOnUiThread { result.error("io", e.message, null) }
+        }
+    }.start()
+
+    /** Every file under a folder the reader picked: its uri, its path inside the folder and when it changed. */
+    private fun listFolder(tree: android.net.Uri): List<Map<String, Any>> {
+        val found = mutableListOf<Map<String, Any>>()
+        val dirs = ArrayDeque(listOf(android.provider.DocumentsContract.getTreeDocumentId(tree) to ""))
+        val columns = arrayOf(
+            android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE,
+            android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+        while (dirs.isNotEmpty()) {
+            val (id, prefix) = dirs.removeFirst()
+            val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, id)
+            contentResolver.query(children, columns, null, null, null)?.use { c ->
+                while (c.moveToNext()) {
+                    val rel = prefix + c.getString(1)
+                    if (c.getString(2) == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
+                        dirs.add(c.getString(0) to "$rel/")
+                    } else {
+                        val uri = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0))
+                        found.add(mapOf("uri" to uri.toString(), "path" to rel, "modified" to c.getLong(3)))
+                    }
+                }
+            }
+        }
+        return found
+    }
 
     private fun updateSpeechService(args: Map<*, *>) {
         val service = Intent(this, ReadingService::class.java)
@@ -54,6 +93,45 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "shouldRest" -> result.success(shouldRest())
+                    "shareFile" -> {
+                        val args = call.arguments as Map<*, *>
+                        val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", java.io.File(args["path"] as String))
+                        val send = Intent(Intent.ACTION_SEND)
+                            .setType(args["type"] as String)
+                            .putExtra(Intent.EXTRA_STREAM, uri)
+                            .putExtra(Intent.EXTRA_TEXT, args["text"] as String?)
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        startActivity(Intent.createChooser(send, null))
+                        result.success(null)
+                    }
+                    "setBrightness" -> {
+                        val v = (call.arguments as Number).toFloat()
+                        window.attributes = window.attributes.apply { screenBrightness = if (v < 0) -1f else v }
+                        result.success(null)
+                    }
+                    "shelf" -> {
+                        ShelfWidget.setBooks(this, call.arguments as String)
+                        result.success(null)
+                    }
+                    "takeOpen" -> {
+                        result.success(openRequest(intent))
+                        intent.action = null
+                    }
+                    "pickFolder" -> {
+                        pendingFolder = result
+                        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), PICK_FOLDER)
+                    }
+                    "listFolder" -> inBackground(result) { listFolder(android.net.Uri.parse(call.arguments as String)) }
+                    "copyIn" -> {
+                        val args = call.arguments as Map<*, *>
+                        inBackground(result) {
+                            val to = java.io.File(args["to"] as String).apply { parentFile?.mkdirs() }
+                            contentResolver.openInputStream(android.net.Uri.parse(args["uri"] as String))!!.use { input ->
+                                to.outputStream().use { input.copyTo(it) }
+                            }
+                            to.path
+                        }
+                    }
                     "saveDocument" -> {
                         val args = call.arguments as Map<*, *>
                         pendingSave = (args["path"] as String) to result
@@ -75,10 +153,36 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /** A book the home-screen shelf asked to open, and whether to read it aloud. */
+    private fun openRequest(intent: Intent?): Map<String, Any>? {
+        if (intent?.action != ShelfWidget.ACTION_OPEN) return null
+        val book = intent.getStringExtra(ShelfWidget.EXTRA_BOOK) ?: return null
+        return mapOf("book" to book, "speak" to intent.getBooleanExtra(ShelfWidget.EXTRA_SPEAK, false))
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openRequest(intent)?.let { channel?.invokeMethod("open", it) }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        if (speechChannel == channel) speechChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
     // Copies the file Dart prepared to where the reader chose, off the main thread: a library backup can be large.
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == PICK_FOLDER) {
+            val result = pendingFolder ?: return
+            pendingFolder = null
+            val uri = data?.data
+            if (resultCode != RESULT_OK || uri == null) return result.success(null)
+            // Kept across restarts, so new books in the folder can be picked up later.
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            return result.success(uri.toString())
+        }
         if (requestCode != SAVE_DOCUMENT) return
         val (path, result) = pendingSave ?: return
         pendingSave = null
@@ -139,11 +243,14 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val SAVE_DOCUMENT = 42
+        private const val PICK_FOLDER = 43
         private var speechChannel: MethodChannel? = null
 
-        /** A button on the reading notification was pressed. */
-        fun sendSpeechAction(action: String) {
-            speechChannel?.invokeMethod("speechAction", action)
+        /** A button on the reading notification or the shelf was pressed; false when the app is not running. */
+        fun sendSpeechAction(action: String): Boolean {
+            val channel = speechChannel ?: return false
+            channel.invokeMethod("speechAction", action)
+            return true
         }
     }
 }

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_paper">#F7F3EC</color>
+    <color name="widget_ink">#2A2622</color>
+    <color name="widget_muted">#7A7068</color>
+    <color name="widget_accent">#9B4D2E</color>
+    <string name="shelf_3">Bookshelf · last 3</string>
+    <string name="shelf_5">Bookshelf · last 5</string>
+    <string name="shelf_description">Your latest books; tap one to open it, or read the first aloud</string>
+    <string name="shelf_empty">No books yet</string>
+    <string name="shelf_read_aloud">Read aloud</string>
+    <string name="shelf_stop">Stop</string>
+    <style name="ShelfCover">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginStart">3dp</item>
+        <item name="android:layout_marginEnd">3dp</item>
+        <item name="android:scaleType">fitCenter</item>
+    </style>
+</resources>

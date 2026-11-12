@@ -60,3 +60,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Already in the app through file_picker; named here for FileProvider, which shares a quote picture.
+    implementation("androidx.core:core:1.18.0")
+}

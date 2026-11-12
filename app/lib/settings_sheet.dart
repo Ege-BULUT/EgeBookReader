@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 import 'backup.dart';
+import 'incoming.dart' show importFolder;
 import 'colorize.dart';
 import 'fonts.dart';
 import 'l10n.dart';
@@ -38,7 +39,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
     String note;
     try {
       final file = await writeBackup();
-      final saved = await saveBackupAs(file);
+      final saved = await saveFileAs(file);
       await file.delete();
       note = saved ? 'Yedek kaydedildi.' : 'Yedek kaydedilmedi.';
     } catch (e) {
@@ -134,6 +135,42 @@ class _SettingsSheetState extends State<SettingsSheet> {
         padding: const EdgeInsets.only(top: 4),
         child: Text(tr('Yalnızca aranacak metin (kitabın adı ve yazarı) Open Library\'ye gönderilir.'), style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
       ),
+      Heading('İzlenen klasör'),
+      Text(
+          tr(s.watchedFolder == null
+              ? 'Bir klasör seçersen içindeki kitaplar eklenir; sonradan oraya koyduğun kitaplar da uygulama her açıldığında kendiliğinden gelir.'
+              : 'Klasöre yeni konan kitaplar uygulama her açıldığında kitaplığa eklenir.'),
+          style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
+      if (s.watchedFolder case final f?)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(Uri.decodeComponent(f.split('/').last).replaceFirst('primary:', ''),
+              style: TextStyle(color: s.palette.ink, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+      Row(children: [
+        TextButton(
+          onPressed: _backupBusy
+              ? null
+              : () async {
+                  setState(() => _backupBusy = true);
+                  try {
+                    final done = await importFolder(watch: true);
+                    if (done != null) _backupNote = '${tr('Eklenen kitap')}: ${done.$1}';
+                  } finally {
+                    if (mounted) setState(() => _backupBusy = false);
+                  }
+                },
+          child: Text(tr(s.watchedFolder == null ? 'Klasör seç' : 'Başka klasör seç')),
+        ),
+        if (s.watchedFolder != null)
+          TextButton(
+            onPressed: () => s.update((x) {
+              x.watchedFolder = null;
+              x.seenInFolder = {};
+            }),
+            child: Text(tr('İzlemeyi bırak')),
+          ),
+      ]),
       Heading('Yedek'),
       Text(tr('Kitaplar, ilerleme, yer imleri, etiketler, listeler ve kapaklar tek dosyada. Geri yüklerken kitaplıkta olanlar olduğu gibi kalır, eksikler eklenir.'),
           style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
@@ -144,6 +181,19 @@ class _SettingsSheetState extends State<SettingsSheet> {
         if (_backupBusy) SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2, color: s.palette.accent)),
       ]),
       if (_backupNote != null) Text(_backupNote!, style: TextStyle(color: s.palette.ink, fontSize: 13)),
+      Heading('Hata günlüğü'),
+      Text(tr('Uygulamanın karşılaştığı hatalar yalnızca bu cihazda tutulur. Bir sorunu bildirirken kaydedip gönderebilirsin.'),
+          style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton(
+          onPressed: () async {
+            final saved = await saveErrorLog();
+            if (mounted) setState(() => _backupNote = tr(saved ? 'Hata günlüğü kaydedildi.' : (errorLog.existsSync() ? 'Kaydedilmedi.' : 'Henüz hata yok.')));
+          },
+          child: Text(tr('Hata günlüğünü kaydet')),
+        ),
+      ),
     ];
   }
 
@@ -160,11 +210,32 @@ class _SettingsSheetState extends State<SettingsSheet> {
         ],
       ]),
       const SizedBox(height: 12),
-      Segmented<bool>(
-        value: s.dark,
-        options: const {false: 'Açık', true: 'Koyu'},
-        onChanged: (v) => s.update((x) => x.dark = v),
+      Segmented<int>(
+        value: s.autoNight ? 2 : (s.dark ? 1 : 0),
+        options: const {0: 'Açık', 1: 'Koyu', 2: 'Saate göre'},
+        onChanged: (v) => s.update((x) {
+          x.autoNight = v == 2;
+          if (v < 2) x.dark = v == 1;
+        }),
       ),
+      if (s.autoNight)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Row(children: [
+            Text(tr('Koyu:'), style: TextStyle(color: c.muted, fontSize: 14)),
+            for (final (i, m) in [s.nightFrom, s.nightTo].indexed) ...[
+              if (i == 1) Text('–', style: TextStyle(color: c.muted)),
+              TextButton(
+                onPressed: () async {
+                  final t = await showTimePicker(context: context, initialTime: TimeOfDay(hour: m ~/ 60, minute: m % 60));
+                  if (t != null) s.update((x) => i == 0 ? x.nightFrom = t.hour * 60 + t.minute : x.nightTo = t.hour * 60 + t.minute);
+                },
+                style: TextButton.styleFrom(foregroundColor: c.accent),
+                child: Text('${(m ~/ 60).toString().padLeft(2, '0')}:${(m % 60).toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 15)),
+              ),
+            ],
+          ]),
+        ),
       if (s.theme == PaperTheme.custom) ...[
         Heading('Özel arka plan'),
         _SubLabel('Renk'),
@@ -297,6 +368,10 @@ class _SettingsSheetState extends State<SettingsSheet> {
           library.changed();
         }),
       Toggle('Ses tuşlarıyla çevir', s.volumeKeys, (v) => s.update((x) => x.volumeKeys = v)),
+      Toggle('Sol kenarda kaydırarak parlaklık', s.edgeBrightness, (v) => s.update((x) {
+            x.edgeBrightness = v;
+            if (!v) x.brightness = -1;
+          })),
       Toggle('Ses tuşlarını ters çevir', s.invertVolume, (v) => s.update((x) => x.invertVolume = v)),
     ];
   }
@@ -658,7 +733,7 @@ class ThemeSwatch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = settings.paletteFor(theme, settings.dark);
+    final t = settings.paletteFor(theme, settings.darkNow);
     final selected = settings.theme == theme;
     final c = settings.palette;
     return GestureDetector(

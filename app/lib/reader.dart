@@ -1,27 +1,37 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
+import 'backup.dart' show saveFileAs;
 
 import 'colorize.dart';
 import 'curl.dart';
 import 'l10n.dart';
 import 'main.dart';
 import 'motion.dart';
+import 'panels.dart';
 import 'zones.dart';
 import 'settings.dart';
 import 'settings_sheet.dart';
 import 'sources.dart';
+import 'stats.dart';
 import 'tts.dart';
 import 'viewer.dart';
 
 const _volume = MethodChannel('egebookreader/volume');
 
 class ReaderScreen extends StatefulWidget {
-  const ReaderScreen({super.key, required this.book, required this.coverRect, this.startPage});
+  const ReaderScreen({super.key, required this.book, required this.coverRect, this.startPage, this.speak = false});
+
+  /// Start reading aloud as soon as the book is open (asked for from the home-screen shelf).
+  final bool speak;
   final Book book;
 
   /// Opens at this page (from 0) instead of where reading stopped.
@@ -86,13 +96,20 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   ui.Image? _blank;
   ui.Image? _customBackground;
 
+  /// Counts reading time for the statistics while the reader is in use: a page turned, a tap or the voice.
+  late final Timer _clock = Timer.periodic(const Duration(seconds: 15), (_) {
+    if (_ready && _onScreen && (speaker.active || DateTime.now().difference(_active).inMinutes < 5)) stats.addTime(15);
+  });
+  DateTime _active = DateTime.now();
+  bool _spokeOnOpen = false;
+
   @override
   void initState() {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     settings.addListener(_settingsChanged);
     library.addListener(_libraryChanged);
-    _volume.setMethodCallHandler(_onVolume);
+    readerCalls = _onVolume;
     colorizer.onDone = _colorizedOne;
     colorizer.addListener(_colorizerChanged);
     speaker.addListener(_speakerChanged);
@@ -100,7 +117,10 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     WidgetsBinding.instance.addObserver(this);
     _syncVolume();
     _volume.invokeMethod('setReading', true);
+    if (settings.edgeBrightness && settings.brightness >= 0) _volume.invokeMethod('setBrightness', settings.brightness);
     _scroll.addListener(_onScroll);
+    _clock;
+    _findTint();
     _start();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -282,9 +302,11 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     _volume.invokeMethod('speechService', {'active': false});
     colorizer.onDone = null;
     colorizer.clearQueue();
-    _volume.setMethodCallHandler(null);
+    if (readerCalls == _onVolume) readerCalls = null;
     _volume.invokeMethod('setEnabled', false);
     _volume.invokeMethod('setReading', false);
+    _volume.invokeMethod('setBrightness', -1.0);
+    _clock.cancel();
     _scroll.dispose();
     _move.dispose();
     _swing.dispose();
@@ -339,7 +361,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
         curve: const Cubic(0.22, 1, 0.36, 1),
       );
     } else {
-      _curl.currentState?.turn(dir);
+      _go(dir);
     }
   }
 
@@ -367,6 +389,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     final generation = ++_generation;
     final old = Map.of(_images);
     _images.clear();
+    _marks.clear();
+    _panelsOf.clear();
+    _panel = -1;
     _rendering.clear();
     _blank = null;
     final shown = [for (var i = _page; i < _page + _step; i++) old[i]].nonNulls.toList();
@@ -392,6 +417,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       await _source!.prepare(page, style, onProgress: (v) {
         if (mounted && generation == _generation) setState(() => _layoutProgress = v);
       });
+      _chapters = [for (final e in await _source!.tableOfContents()) e.page];
       if (!mounted || generation != _generation) return;
       final start = _startPage;
       _startPage = null;
@@ -424,6 +450,10 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       if (!mounted || generation != _generation) return;
       setState(() => _ready = true);
       _remember();
+      if (widget.speak && !_spokeOnOpen) {
+        _spokeOnOpen = true;
+        _speakFromHere();
+      }
       if (_scrolling) _jumpScroll();
       _maybeSwing();
       if (_ghost != null) {
@@ -459,10 +489,16 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   Future<void> _renderWindow(int generation, {bool first = false}) async {
     if (!_onScreen && !first) return; // no drawing with the screen off; it catches up on return
     final style = _style!;
-    final near = <int>[
-      for (var d = 0; d <= _step * 2; d++) ...[_page + d, _page + _step - 1 - d, if (d > 0) _page - d],
-      _page + _step * 2 + 1,
-    ].where((i) => i >= 0 && i < _count).toSet().toList();
+    // Webtoon strips are tall and heavy: keep only the one before and the two after.
+    final near = (_strip
+            ? [_page, _page + 1, _page - 1, _page + 2]
+            : <int>[
+                for (var d = 0; d <= _step * 2; d++) ...[_page + d, _page + _step - 1 - d, if (d > 0) _page - d],
+                _page + _step * 2 + 1,
+              ])
+        .where((i) => i >= 0 && i < _count)
+        .toSet()
+        .toList();
     // On first show only what is on screen must be ready; the rest follows without blocking.
     final wait = first ? near.where((i) => i >= _page && i < _page + _step).toList() : near;
     Future<void> one(int i) async {
@@ -476,6 +512,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       _rendering.remove(i);
       _images[i] = img;
       setState(() {});
+      unawaited(_findMarks(i));
     }
 
     for (final i in wait) {
@@ -484,7 +521,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     if (first) unawaited(Future.forEach(near, one));
     if (generation != _generation) return;
     _images.removeWhere((i, img) {
-      if ((i - _page).abs() <= _step * 4) return false;
+      if ((i - _page).abs() <= (_strip ? 2 : _step * 4)) return false;
       WidgetsBinding.instance.addPostFrameCallback((_) => img.dispose());
       return true;
     });
@@ -492,8 +529,11 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   Future<ui.Image> _renderOne(int index, Size page, PageStyle s, {double sharper = 1}) async {
     _source?.renderScale = sharper;
-    // ponytail: a webtoon strip taller than 8192 pixels is drawn coarser; split it into tiles if that shows.
-    final dpr = min(MediaQuery.devicePixelRatioOf(context) * sharper, 8192 / page.height);
+    final full = MediaQuery.devicePixelRatioOf(context) * sharper;
+    // A picture can be at most 8192 pixels tall: a webtoon strip taller than that is drawn at full sharpness in
+    // tiles, any other page a little coarser.
+    final tiled = _strip && index >= 0 && page.height * full > 8192;
+    final dpr = tiled ? full : min(full, 8192 / page.height);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder)..scale(dpr);
     final background = _customBackground;
@@ -542,9 +582,31 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     }
     _bakePaper(canvas, Offset.zero & page, s, index);
     final picture = recorder.endRecording();
+    if (tiled) return _tile(picture, (page.width * dpr).ceil(), (page.height * dpr).ceil());
     final image = await picture.toImage((page.width * dpr).ceil(), (page.height * dpr).ceil());
     picture.dispose();
     return image;
+  }
+
+  /// The tiles of a tall strip, top to bottom, each at most 4096 pixels.
+  /// ponytail: the tiles after the first live as long as the first does (an Expando), and go with the garbage collector.
+  final _tilesOf = Expando<List<ui.Image>>();
+
+  Future<ui.Image> _tile(ui.Picture picture, int width, int height) async {
+    const step = 4096;
+    final tiles = <ui.Image>[];
+    for (var y = 0; y < height; y += step) {
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder)
+        ..translate(0, -y.toDouble())
+        ..drawPicture(picture);
+      final part = recorder.endRecording();
+      tiles.add(await part.toImage(width, min(step, height - y)));
+      part.dispose();
+    }
+    picture.dispose();
+    _tilesOf[tiles.first] = tiles;
+    return tiles.first;
   }
 
   /// Grain, and in actual book mode the fold shadow and soft light. Baked into the page so they curl with it.
@@ -630,8 +692,12 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   void _onTurned(int dir) {
+    _learnPace();
+    _active = DateTime.now();
+    stats.addPage();
     _dropSharp();
     setState(() => _page = (_page + dir * _step).clamp(0, max(0, _count - 1)));
+    if (_panelsOn) _enterPanels(dir);
     _remember();
     _renderWindow(_generation);
     if (_speechTurning || speaker.active) {
@@ -700,6 +766,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   void _onTap(Offset at, Size size) {
+    _active = DateTime.now();
     if (_speedOpen) return setState(() => _speedOpen = false);
     if (_menu) return _toggleMenu();
     // Right to left, the zones are mirrored: the left side turns forward.
@@ -709,9 +776,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     if (!zoneTurns && _openPictureAt(at, size)) return;
     switch (action) {
       case ZoneAction.prev:
-        _curl.currentState?.turn(-1);
+        _go(-1);
       case ZoneAction.next:
-        _curl.currentState?.turn(1);
+        _go(1);
       case ZoneAction.menu:
         _toggleMenu();
       case ZoneAction.bookmark:
@@ -797,6 +864,11 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     if (!_scrolling || !_ready) return;
     final page = _pageAt(_scroll.offset + _scroll.position.viewportDimension * 0.3);
     if (page != _page) {
+      if (page > _page) {
+        stats.addPage();
+        _learnPace();
+      }
+      _active = DateTime.now();
       _page = page;
       _remember();
       _renderWindow(_generation);
@@ -864,6 +936,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                     ),
                   ),
                   if (_ghost != null) _ghostLayer(screen),
+                  if (settings.edgeBrightness && !_menu) _brightnessEdge(screen),
                   _menuHint(c),
                   if (_error != null) _errorView(c),
                   _chrome(c),
@@ -1019,7 +1092,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       still: _still(),
       onTurned: _onTurned,
       onTap: _onTap,
+      onLongPress: _onLongPress,
       onZoomChanged: _zoomSettled,
+      panels: _panelsOn,
     );
   }
 
@@ -1029,7 +1104,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       return img == null ? const SizedBox.expand() : RawImage(image: img, fit: BoxFit.fill);
     }
 
-    Widget withBadges(int i) => Stack(fit: StackFit.expand, children: [one(i), _spokenHighlight(i), ..._badges(i)]);
+    Widget withBadges(int i) => Stack(fit: StackFit.expand, children: [one(i), _marksLayer(i), _spokenHighlight(i), ..._badges(i)]);
     return _spreadActive
         ? Row(textDirection: widget.book.rtl ? TextDirection.rtl : TextDirection.ltr, children: [Expanded(child: withBadges(_page)), Expanded(child: withBadges(_page + 1))])
         : withBadges(_page);
@@ -1144,12 +1219,18 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
         if (index < _count && _openPicture(index, Offset(d.localPosition.dx, at - _top(index)), Offset(0, _top(index) - _scroll.offset))) return;
         _toggleMenu();
       },
+      onLongPressStart: (d) {
+        final at = d.localPosition.dy + _scroll.offset;
+        final index = _pageAt(at);
+        _textAt(index, Offset(d.localPosition.dx, at - _top(index)));
+      },
       child: ListView.builder(
         controller: _scroll,
         itemExtentBuilder: (i, _) => i < _count ? _top(i + 1) - _top(i) : null,
         itemCount: _count,
         itemBuilder: (context, i) {
           final img = _images[i];
+          final tiles = img == null ? null : _tilesOf[img];
           if (img == null) {
             WidgetsBinding.instance.addPostFrameCallback((_) => _renderWindow(_generation));
           }
@@ -1158,13 +1239,448 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
             child: img == null
                 ? ColoredBox(color: settings.palette.paper)
                 : Stack(fit: StackFit.expand, children: [
-                    RawImage(image: img, fit: BoxFit.fill, width: page.width, height: page.height),
+                    if (tiles == null)
+                      RawImage(image: img, fit: BoxFit.fill, width: page.width, height: page.height)
+                    else
+                      Column(children: [for (final t in tiles) Expanded(flex: t.height, child: RawImage(image: t, fit: BoxFit.fill, width: page.width))]),
+                    _marksLayer(i),
                     _spokenHighlight(i),
                   ]),
           );
         },
       ),
     );
+  }
+
+  // ---- brightness on the left edge -----------------------------------------------------------------------
+
+  double? _brightnessShown;
+  Timer? _brightnessHide;
+
+  Widget _brightnessEdge(Size screen) {
+    final c = settings.palette;
+    final shown = _brightnessShown;
+    return Positioned(
+      left: 0,
+      top: screen.height * 0.12,
+      bottom: screen.height * 0.12,
+      width: 26,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onVerticalDragStart: (_) => _brightnessShown = settings.brightness < 0 ? 0.5 : settings.brightness,
+        onVerticalDragUpdate: (d) {
+          final v = ((_brightnessShown ?? 0.5) - d.delta.dy / (screen.height * 0.6)).clamp(0.02, 1.0);
+          setState(() => _brightnessShown = v);
+          _volume.invokeMethod('setBrightness', v);
+        },
+        onVerticalDragEnd: (_) {
+          settings.update((x) => x.brightness = _brightnessShown ?? -1);
+          _brightnessHide?.cancel();
+          _brightnessHide = Timer(const Duration(milliseconds: 900), () {
+            if (mounted) setState(() => _brightnessShown = null);
+          });
+        },
+        child: shown == null
+            ? null
+            : OverflowBox(
+                maxWidth: 200,
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  margin: const EdgeInsets.only(left: 34),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(color: c.ink.withValues(alpha: 0.75), borderRadius: BorderRadius.circular(8)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.brightness_6_outlined, size: 18, color: c.paper),
+                    const SizedBox(width: 6),
+                    Text('%${(shown * 100).round()}', style: TextStyle(color: c.paper, fontSize: 14)),
+                  ]),
+                ),
+              ),
+      ),
+    );
+  }
+
+  // ---- the cover's colour --------------------------------------------------------------------------------
+
+  Color? _tint;
+
+  /// The cover's average colour, from a tiny copy of it.
+  Future<void> _findTint() async {
+    final path = widget.book.cover;
+    if (path == null || !File(path).existsSync()) return;
+    try {
+      final codec = await ui.instantiateImageCodec(await File(path).readAsBytes(), targetWidth: 12);
+      final frame = await codec.getNextFrame();
+      codec.dispose();
+      final px = (await frame.image.toByteData())!.buffer.asUint8List();
+      frame.image.dispose();
+      var r = 0, g = 0, b = 0;
+      final n = px.length ~/ 4;
+      for (var i = 0; i < px.length; i += 4) {
+        r += px[i];
+        g += px[i + 1];
+        b += px[i + 2];
+      }
+      if (mounted) setState(() => _tint = Color.fromARGB(255, r ~/ n, g ~/ n, b ~/ n));
+    } catch (_) {
+      // no colour then; the bar stays paper
+    }
+  }
+
+  // ---- time left -------------------------------------------------------------------------------------
+
+  DateTime _turnedAt = DateTime.now();
+  List<int> _chapters = const [];
+
+  /// A page turned forward: how long it took joins the book's pace. Pauses and skimming do not count.
+  void _learnPace() {
+    final now = DateTime.now(), took = now.difference(_turnedAt).inMilliseconds / 1000;
+    _turnedAt = now;
+    if (took < 3 || took > 300) return;
+    final b = widget.book;
+    b.secondsPerPage = b.secondsPerPage == 0 ? took : b.secondsPerPage * 0.85 + took * 0.15;
+  }
+
+  /// "~6 dk left in the chapter · ~3 h in the book", once the pace is known.
+  String? get _timeLeft {
+    final pace = widget.book.secondsPerPage;
+    if (pace == 0 || _count == 0) return null;
+    String span(int pages) {
+      final m = (pages * pace / 60).round();
+      return m < 60 ? '~${max(m, 1)} ${tr('dk')}' : '~${m ~/ 60} ${tr('sa')} ${m % 60} ${tr('dk')}';
+    }
+
+    final end = _chapters.where((p) => p > _page).fold(_count, min);
+    final book = '${tr('kitapta')} ${span(_count - _page - 1)}';
+    return end < _count ? '${tr('Bölümde')} ${span(end - _page)} · $book' : '${tr('Kitapta')} ${span(_count - _page - 1)}';
+  }
+
+  // ---- panel by panel ---------------------------------------------------------------------------------
+
+  /// Picture books read one page at a time can be read a panel at a time.
+  bool get _canPanel => !_scrolling && !_spreadActive && _source?.pageSizes != null;
+  bool get _panelsOn => settings.panels && _canPanel;
+
+  /// The panel shown, or -1 for the whole page.
+  int _panel = -1;
+  final _panelsOf = <int, Future<List<Rect>>>{};
+
+  /// Page [i]'s panels in reading order, on the page; found once from a small copy of its picture.
+  Future<List<Rect>> _panelsFor(int i) => _panelsOf[i] ??= _findPanels(i);
+
+  Future<List<Rect>> _findPanels(int i) async {
+    final images = await _source!.imagesOn(i, _sizeOf(i));
+    var found = const <Rect>[];
+    if (images.isNotEmpty) {
+      final image = images.first;
+      final codec = await ui.instantiateImageCodec(await image.bytes(), targetWidth: 240);
+      final frame = await codec.getNextFrame();
+      codec.dispose();
+      final pixels = await frame.image.toByteData();
+      final (w, h) = (frame.image.width, frame.image.height);
+      frame.image.dispose();
+      final r = image.rect;
+      found = [
+        for (final f in findPanels(pixels!.buffer.asUint8List(), w, h, rtl: widget.book.rtl))
+          Rect.fromLTRB(r.left + f.left * r.width, r.top + f.top * r.height, r.left + f.right * r.width, r.top + f.bottom * r.height),
+      ];
+    }
+    return found;
+  }
+
+  /// A step forward or back: a panel when reading panel by panel and the page has more, otherwise a page.
+  Future<void> _go(int dir) async {
+    final curl = _curl.currentState;
+    if (!_panelsOn || curl == null) return curl?.turn(dir);
+    final panels = await _panelsFor(_page);
+    final next = _panel + dir;
+    if (!mounted) return;
+    if (next >= 0 && next < panels.length) {
+      setState(() => _panel = next);
+      return curl.zoomTo(panels[next]);
+    }
+    if (next == -1 && _panel == 0) {
+      // Back from the first panel: the whole page once more, then the page before.
+      setState(() => _panel = -1);
+      return curl.resetZoom();
+    }
+    if (!_canGo(dir)) return;
+    curl.resetZoom();
+    curl.turn(dir);
+  }
+
+  /// On a new page: its first panel going forward, its last going back; the whole page if it has none.
+  Future<void> _enterPanels(int dir) async {
+    _panel = -1;
+    final page = _page, panels = await _panelsFor(page);
+    if (!mounted || page != _page || panels.isEmpty) return;
+    setState(() => _panel = dir > 0 ? 0 : panels.length - 1);
+    _curl.currentState?.zoomTo(panels[_panel]);
+  }
+
+  void _togglePanels() {
+    final on = !settings.panels;
+    settings.update((x) => x.panels = on);
+    _panel = -1;
+    _curl.currentState?.resetZoom();
+    if (on) _go(1);
+  }
+
+  // ---- highlights, notes and looking words up -----------------------------------------------------------
+
+  final _sentences = <int, List<SpokenSentence>>{};
+  int _sentencesFor = -1;
+
+  Future<List<SpokenSentence>> _sentencesOf(int i) async {
+    if (_sentencesFor != _generation) {
+      _sentences.clear();
+      _sentencesFor = _generation;
+    }
+    return _sentences[i] ??= await _source!.sentencesOn(i);
+  }
+
+  /// The highlights on each drawn page, with their boxes.
+  final _marks = <int, List<(Highlight, List<Rect>)>>{};
+
+  double get _near => 0.04 + 2 / max(_count, 1);
+
+  /// Where sentence [s] of page [i] is through the book, 0 to 1, down to the line.
+  double _posOf(int i, SpokenSentence s) => (i + (s.boxes.isEmpty ? 0 : s.boxes.first.top / _sizeOf(i).height)) / max(_count, 1);
+
+  Future<void> _findMarks(int i) async {
+    final generation = _generation;
+    final candidates = widget.book.highlights.where((h) => (h.at - i / max(_count, 1)).abs() < _near).toList();
+    final found = <(Highlight, List<Rect>)>[];
+    if (candidates.isNotEmpty) {
+      final sentences = await _sentencesOf(i);
+      // The same sentence can appear twice on a page: each highlight takes the one nearest where it was made.
+      for (final h in candidates) {
+        final best = sentences.where((s) => h.matches(s.text)).fold<SpokenSentence?>(
+            null, (b, s) => b == null || (_posOf(i, s) - h.at).abs() < (_posOf(i, b) - h.at).abs() ? s : b);
+        if (best != null) found.add((h, best.boxes));
+      }
+    }
+    if (!mounted || generation != _generation || (found.isEmpty && (_marks[i]?.isEmpty ?? true))) return;
+    setState(() => _marks[i] = found);
+  }
+
+  void _marksChanged() {
+    library.save();
+    for (final i in _images.keys.toList()) {
+      _findMarks(i);
+    }
+  }
+
+  Widget _marksLayer(int i) {
+    final marks = _marks[i];
+    if (marks == null || marks.isEmpty) return const SizedBox.shrink();
+    return IgnorePointer(child: CustomPaint(size: Size.infinite, painter: _MarksPainter(marks, settings.palette.isDark)));
+  }
+
+  void _onLongPress(Offset at, Size size) {
+    if (_menu) return;
+    final spread = _spreadActive, half = size.width / 2;
+    final right = spread && at.dx >= half;
+    // Right to left, the first page of a spread is the right one.
+    final index = spread && right != widget.book.rtl ? _page + 1 : _page;
+    _textAt(index, right ? at - Offset(half, 0) : at);
+  }
+
+  List<ProcessTextAction>? _lookups;
+
+  /// A long press on text: the word and its sentence, to mark, write a note on, copy, or look up in another app.
+  Future<void> _textAt(int index, Offset at) async {
+    if (_source == null || index < 0 || index >= _count) return;
+    _active = DateTime.now();
+    final sentences = await _sentencesOf(index);
+    SpokenSentence? hit;
+    SpokenWord? word;
+    for (final s in sentences) {
+      word = s.words.where((w) => w.boxes.any((r) => r.inflate(4).contains(at))).firstOrNull;
+      if (word != null) {
+        hit = s;
+        break;
+      }
+    }
+    hit ??= sentences.where((s) => s.boxes.any((r) => r.inflate(4).contains(at))).firstOrNull;
+    if (hit == null || !mounted) return;
+    HapticFeedback.selectionClick();
+    _lookups ??= await DefaultProcessTextService().queryTextActions().catchError((_) => <ProcessTextAction>[]);
+    if (!mounted) return;
+    final term = word == null ? null : hit.text.substring(word.start, word.end).replaceAll(RegExp(r'^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$', unicode: true), '');
+    _textSheet(index, hit, term == null || term.isEmpty ? null : term);
+  }
+
+  void _textSheet(int index, SpokenSentence s, String? word) {
+    final c = settings.palette;
+    final book = widget.book;
+    var current = _marks[index]?.where((m) => identical(m.$2, s.boxes)).firstOrNull?.$1;
+    Highlight? find() => current;
+    Highlight mark([int? color]) {
+      var h = current;
+      if (h == null) book.highlights.add(h = current = Highlight(s.text, _posOf(index, s), color ?? highlightColors.first));
+      if (color != null) h.color = color;
+      _marksChanged();
+      return h;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheet) => StatefulBuilder(builder: (sheet, set) {
+        final h = find();
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (word != null) Text(word, style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 24)),
+              const SizedBox(height: 4),
+              Text(s.text, maxLines: 5, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.muted, fontSize: 14, height: 1.4)),
+              const SizedBox(height: 16),
+              Row(children: [
+                for (final color in highlightColors)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: GestureDetector(
+                      onTap: () => set(() => mark(color)),
+                      child: Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: Color(color),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: h?.color == color ? c.ink : Colors.transparent, width: 2),
+                        ),
+                      ),
+                    ),
+                  ),
+                const Spacer(),
+                if (h != null)
+                  IconButton(
+                    tooltip: tr('Vurguyu kaldır'),
+                    icon: Icon(Icons.delete_outline, color: c.muted),
+                    onPressed: () => set(() {
+                      book.highlights.remove(h);
+                      current = null;
+                      _marksChanged();
+                    }),
+                  ),
+              ]),
+              if (h?.note case final note? when note.isNotEmpty)
+                Padding(padding: const EdgeInsets.only(top: 10), child: Text(note, style: TextStyle(color: c.ink, fontSize: 14, height: 1.4))),
+              const SizedBox(height: 6),
+              Wrap(children: [
+                TextButton.icon(
+                  style: TextButton.styleFrom(foregroundColor: c.accent),
+                  icon: const Icon(Icons.edit_note, size: 20),
+                  label: Text(tr(h?.note == null ? 'Not ekle' : 'Notu düzenle')),
+                  onPressed: () async {
+                    final text = await _askNote(h?.note);
+                    if (text == null) return;
+                    set(() => mark().note = text.trim().isEmpty ? null : text.trim());
+                    _marksChanged();
+                  },
+                ),
+                TextButton.icon(
+                  style: TextButton.styleFrom(foregroundColor: c.accent),
+                  icon: const Icon(Icons.share_outlined, size: 18),
+                  label: Text(tr('Görsel paylaş')),
+                  onPressed: () {
+                    Navigator.pop(sheet);
+                    _shareQuote(s.text);
+                  },
+                ),
+                TextButton.icon(
+                  style: TextButton.styleFrom(foregroundColor: c.accent),
+                  icon: const Icon(Icons.copy, size: 18),
+                  label: Text(tr('Kopyala')),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: s.text));
+                    Navigator.pop(sheet);
+                  },
+                ),
+                if (word != null)
+                  for (final a in _lookups ?? const <ProcessTextAction>[])
+                    TextButton.icon(
+                      style: TextButton.styleFrom(foregroundColor: c.accent),
+                      icon: const Icon(Icons.translate, size: 18),
+                      label: Text(a.label),
+                      onPressed: () => DefaultProcessTextService().processTextAction(a.id, word, true),
+                    ),
+              ]),
+              if (word != null && (_lookups?.isEmpty ?? true))
+                Text(tr('Sözlük ya da çeviri için bir uygulama yok. Google Çeviri gibi bir uygulama kurulunca burada çıkar.'),
+                    style: TextStyle(color: c.muted, fontSize: 12, height: 1.4)),
+            ]),
+          ),
+        );
+      }),
+    );
+  }
+
+  Future<String?> _askNote(String? note) async {
+    final c = settings.palette;
+    final field = TextEditingController(text: note);
+    final text = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: c.paper,
+        title: Text(tr('Not'), style: TextStyle(color: c.ink, fontFamily: 'serif', fontSize: 20)),
+        content: TextField(controller: field, autofocus: true, minLines: 3, maxLines: 8, textCapitalization: TextCapitalization.sentences),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('Vazgeç'))),
+          TextButton(onPressed: () => Navigator.pop(context, field.text), child: Text(tr('Kaydet'))),
+        ],
+      ),
+    );
+    field.dispose();
+    return text;
+  }
+
+  /// The sentence on a card with the book's name, made into a picture and handed to the share sheet.
+  Future<void> _shareQuote(String text) async {
+    final c = settings.palette, b = widget.book;
+    const w = 1080.0, pad = 96.0;
+    TextPainter line(String t, double size, Color color, String family) => TextPainter(
+          text: TextSpan(text: t, style: TextStyle(color: color, fontSize: size, height: 1.45, fontFamily: family)),
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: w - pad * 2);
+    final quote = line('“$text”', 46, c.ink, 'serif');
+    final source = line([b.title, ?b.info['author']].join(' — '), 30, c.muted, 'sans-serif');
+    final brand = line('EgeBookReader', 24, c.accent, 'sans-serif');
+    final h = pad + quote.height + 56 + source.height + 48 + brand.height + pad;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..drawColor(c.paper, BlendMode.src);
+    canvas.drawRect(const Rect.fromLTWH(pad, pad - 36, 80, 6), Paint()..color = c.accent);
+    quote.paint(canvas, const Offset(pad, pad));
+    source.paint(canvas, Offset(pad, pad + quote.height + 56));
+    brand.paint(canvas, Offset(pad, h - pad - brand.height));
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(w.toInt(), h.ceil());
+    picture.dispose();
+    final png = (await image.toByteData(format: ui.ImageByteFormat.png))!;
+    image.dispose();
+    final file = File(p.join((await getApplicationCacheDirectory()).path, 'shared', 'quote.png'));
+    await file.create(recursive: true);
+    await file.writeAsBytes(png.buffer.asUint8List());
+    await _volume.invokeMethod('shareFile', {'path': file.path, 'type': 'image/png', 'text': '“$text” — ${b.title}'});
+  }
+
+  /// The highlights and notes as Markdown, saved where the reader chooses.
+  Future<void> _exportNotes() async {
+    final b = widget.book;
+    final out = StringBuffer('# ${b.title}\n');
+    if (b.info['author'] case final author?) out.write('\n$author\n');
+    for (final h in [...b.highlights]..sort((x, y) => x.at.compareTo(y.at))) {
+      out.write('\n> ${h.text}\n');
+      if (h.note case final note?) out.write('\n$note\n');
+      out.write('\n— ${tr('Sayfa')} ${(h.at * _count).round() + 1}\n');
+    }
+    final name = '${b.title} - ${tr('notlar')}.md'.replaceAll(RegExp(r'[/\\:*?"<>|]'), ' ');
+    final file = File(p.join((await getApplicationCacheDirectory()).path, name));
+    await file.writeAsString(out.toString());
+    await saveFileAs(file);
+    await file.delete();
   }
 
   void _setSpeed(double value) {
@@ -1363,6 +1879,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   Widget _chrome(Palette c) {
     final eink = settings.isEink;
+    // The top bar takes on the cover's colour, with ink that reads on it.
+    final bar = _tint == null || eink ? c.paper : Color.lerp(c.paper, _tint, 0.6)!;
+    final fg = bar == c.paper ? c.ink : (ThemeData.estimateBrightnessForColor(bar) == Brightness.dark ? Colors.white : const Color(0xFF1C1A17));
     final d = Duration(milliseconds: eink ? 1 : (_menu ? 220 : 140));
     const ease = Cubic(0.22, 1, 0.36, 1);
     final pad = MediaQuery.paddingOf(context);
@@ -1380,22 +1899,28 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
             opacity: _menu ? 1 : 0,
             duration: d,
             child: Container(
-              color: c.paper,
+              color: bar,
               padding: EdgeInsets.fromLTRB(6, max(pad.top, 8), 12, 8),
               child: Row(children: [
                 IconButton(
-                  icon: Icon(Icons.arrow_back, color: c.ink, size: 22),
+                  icon: Icon(Icons.arrow_back, color: fg, size: 22),
                   onPressed: _close,
                 ),
                 Expanded(
                   child: Text(widget.book.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: c.ink, fontSize: 15, fontWeight: FontWeight.w500)),
+                      style: TextStyle(color: fg, fontSize: 15, fontWeight: FontWeight.w500)),
                 ),
+                if (_canPanel)
+                  IconButton(
+                    tooltip: tr(settings.panels ? 'Sayfa sayfa oku' : 'Panel panel oku'),
+                    icon: Icon(settings.panels ? Icons.view_quilt : Icons.view_quilt_outlined, color: settings.panels ? c.accent : c.ink, size: 22),
+                    onPressed: _togglePanels,
+                  ),
                 IconButton(
                   tooltip: tr('İçindekiler'),
-                  icon: Icon(Icons.format_list_bulleted_rounded, color: c.ink, size: 22),
+                  icon: Icon(Icons.format_list_bulleted_rounded, color: fg, size: 22),
                   onPressed: _openContents,
                 ),
                 const SizedBox(width: 48), // room for the ribbon
@@ -1418,7 +1943,10 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
             child: Container(
               color: c.paper,
               padding: EdgeInsets.fromLTRB(20, 10, 8, max(pad.bottom, 10)),
-              child: Row(children: [
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                if (_timeLeft case final left?)
+                  Text(left, style: TextStyle(color: c.muted, fontSize: 12)),
+                Row(children: [
                 Expanded(
                   child: total > 1 ? _scrubber(c, total) : const SizedBox.shrink(),
                 ),
@@ -1437,6 +1965,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                   icon: const Icon(Icons.tune, size: 20),
                   label: Text(tr('Ayarlar')),
                 ),
+                ]),
               ]),
             ),
           ),
@@ -1460,6 +1989,19 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
             Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 8), child: Heading('Yer imleri')),
             for (final m in marks)
               _contentRow(context, '${tr('Sayfa')} ${(m * _count).round() + 1}', (m * _count).round(), 0, leading: Icon(Icons.bookmark, color: c.accent, size: 18)),
+          ],
+          if (widget.book.highlights.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 4, 0),
+              child: Row(children: [
+                Expanded(child: Heading('Vurgular ve notlar')),
+                TextButton(onPressed: _exportNotes, style: TextButton.styleFrom(foregroundColor: c.accent), child: Text(tr('Dışa aktar'))),
+              ]),
+            ),
+            for (final h in [...widget.book.highlights]..sort((x, y) => x.at.compareTo(y.at)))
+              _contentRow(context, h.note == null ? h.text : '${h.text}\n${h.note}', (h.at * _count).round(), 0,
+                  leading: Container(width: 4, height: 34, color: Color(h.color))),
+            const SizedBox(height: 14),
           ],
           Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 8), child: Heading('İçindekiler')),
           if (toc.isEmpty)
@@ -1580,6 +2122,29 @@ class _MarkerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_MarkerPainter o) => o.palette != palette || o.eink != eink;
+}
+
+/// The reader's highlights, like a highlighter pen: multiplied into light paper, laid over dark paper.
+class _MarksPainter extends CustomPainter {
+  _MarksPainter(this.marks, this.dark);
+  final List<(Highlight, List<Rect>)> marks;
+  final bool dark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final (h, boxes) in marks) {
+      final paint = Paint()
+        ..color = Color(h.color).withValues(alpha: dark ? 0.32 : 0.55)
+        ..blendMode = dark ? BlendMode.srcOver : BlendMode.multiply;
+      for (final b in boxes) {
+        canvas.drawRRect(RRect.fromRectAndRadius(b.inflate(1), const Radius.circular(2)), paint);
+      }
+      if (h.note != null && boxes.isNotEmpty) canvas.drawCircle(boxes.last.topRight + const Offset(4, 0), 3.5, Paint()..color = Color(h.color));
+    }
+  }
+
+  @override
+  bool shouldRepaint(_MarksPainter old) => old.marks != marks || old.dark != dark;
 }
 
 class _HighlightPainter extends CustomPainter {

@@ -9,8 +9,11 @@ import 'package:archive/archive.dart';
 import 'package:egebookreader/colorize.dart';
 import 'package:egebookreader/curl.dart';
 import 'package:egebookreader/formats.dart';
+import 'package:egebookreader/incoming.dart';
 import 'package:egebookreader/library_sheets.dart';
-import 'package:egebookreader/main.dart' show Book, sameFile;
+import 'package:egebookreader/main.dart' show Book, Highlight, sameFile;
+import 'package:egebookreader/panels.dart';
+import 'package:egebookreader/stats.dart';
 import 'package:egebookreader/meta.dart';
 import 'package:egebookreader/settings.dart';
 import 'package:egebookreader/shelf.dart';
@@ -496,5 +499,89 @@ void main() {
     await tester.tap(find.byType(TextButton).last); // Open
     await tester.pumpAndSettle();
     expect(opened, 1);
+  });
+
+  test('picture sizes come from the header; a JPEG with Exif goes to the decoder', () {
+    final png = Uint8List(24)
+      ..setAll(0, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+      ..setAll(16, [0, 0, 0x03, 0x20, 0, 0, 0x2E, 0xE0]);
+    expect(headerSize(png), const Size(800, 12000));
+    final jpeg = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 0, 4, 0, 0, 0xFF, 0xC0, 0, 17, 8, 0x04, 0xB0, 0x02, 0x80, 3, 0, 0, 0, 0]);
+    expect(headerSize(jpeg), const Size(640, 1200));
+    final exif = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE1, 0, 8, ...'Exif'.codeUnits, 0, 0, 0xFF, 0xC0, 0, 17, 8, 1, 0, 1, 0, 3, 0]);
+    expect(headerSize(exif), isNull);
+    expect(headerSize(Uint8List.fromList([1, 2, 3])), isNull);
+  });
+
+  test('panels are found along white gutters, in reading order either way', () {
+    const pw = 100, ph = 150;
+    final rgba = Uint8List(pw * ph * 4)..fillRange(0, pw * ph * 4, 255);
+    void box(int x0, int y0, int x1, int y1) {
+      for (var y = y0; y < y1; y++) {
+        for (var x = x0; x < x1; x++) {
+          rgba.setAll((y * pw + x) * 4, [60, 60, 60, 255]);
+        }
+      }
+    }
+
+    box(5, 5, 95, 60); // across the top
+    box(5, 70, 45, 145); // bottom left
+    box(55, 70, 95, 145); // bottom right
+    Offset centre(Rect r) => Offset((r.center.dx * pw * 2).roundToDouble() / 2, (r.center.dy * ph * 2).roundToDouble() / 2);
+    final ltr = findPanels(rgba, pw, ph);
+    expect(ltr.map(centre).toList(), [const Offset(50, 32.5), const Offset(25, 107.5), const Offset(75, 107.5)]);
+    final rtl = findPanels(rgba, pw, ph, rtl: true);
+    expect(rtl.map(centre).toList(), [const Offset(50, 32.5), const Offset(75, 107.5), const Offset(25, 107.5)]);
+    // One picture over the whole page: no panels.
+    expect(findPanels(Uint8List(pw * ph * 4)..fillRange(0, pw * ph * 4, 90), pw, ph), isEmpty);
+  });
+
+  test('the streak counts days in a row, from yesterday while today has none', () {
+    final s = ReadingStats();
+    final today = DateTime(2026, 11, 12);
+    for (final d in [12, 11, 10, 8]) {
+      s.addTime(120, DateTime(2026, 11, d));
+    }
+    expect(s.streak(today), 3);
+    expect(s.minutesOver(7, today), 8);
+    s.seconds.remove(ReadingStats.dayOf(today));
+    expect(s.streak(today), 2); // today not read yet: the run up to yesterday still counts
+    s.addPage(today);
+    expect(s.pages[ReadingStats.dayOf(today)], 1);
+  });
+
+  test('a highlight is found again by its text, also when a page break cuts the sentence', () {
+    final h = Highlight('The quick brown fox jumps over the lazy dog.', 0.4, 0xFFF2C94C, note: 'nice');
+    expect(h.matches('The quick brown fox jumps over the lazy dog.'), isTrue);
+    expect(h.matches('The quick brown fox'), isTrue);
+    expect(h.matches('Something else entirely.'), isFalse);
+    final book = Book('/x.epub', 'x', null)..highlights.add(h);
+    final back = Book.fromJson(jsonDecode(jsonEncode(book)) as Map<String, dynamic>).highlights.single;
+    expect((back.text, back.at, back.color, back.note), (h.text, h.at, h.color, h.note));
+  });
+
+  test('a Calibre folder gives one book, its best format, with its opf and cover; loose books come in as they are', () {
+    Incoming f(String path) => Incoming(path, () async => path);
+    final found = booksAmong([
+      f('Calibre/Ursula Le Guin/Earthsea (12)/Earthsea.pdf'),
+      f('Calibre/Ursula Le Guin/Earthsea (12)/Earthsea.epub'),
+      f('Calibre/Ursula Le Guin/Earthsea (12)/metadata.opf'),
+      f('Calibre/Ursula Le Guin/Earthsea (12)/cover.jpg'),
+      f('loose/a.cbz'),
+      f('loose/b.txt'),
+      f('loose/notes.docx.tmp'),
+    ]);
+    final calibre = found.singleWhere((b) => b.$1.path.startsWith('Calibre'));
+    expect(calibre.$1.path, endsWith('Earthsea.epub'));
+    expect(calibre.$2?.path, endsWith('metadata.opf'));
+    expect(calibre.$3?.path, endsWith('cover.jpg'));
+    expect(found.where((b) => b.$1.path.startsWith('loose')).map((b) => b.$1.path), ['loose/a.cbz', 'loose/b.txt']);
+  });
+
+  test('readOpf takes the series and volume Calibre writes', () {
+    final m = readOpf('''<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>A Wizard of Earthsea</dc:title><dc:creator>Ursula K. Le Guin</dc:creator>
+<meta name="calibre:series" content="Earthsea"/><meta name="calibre:series_index" content="1.0"/></metadata></package>''');
+    expect((m.fields['title'], m.fields['author'], m.fields['series'], m.fields['volume']), ('A Wizard of Earthsea', 'Ursula K. Le Guin', 'Earthsea', '1'));
   });
 }

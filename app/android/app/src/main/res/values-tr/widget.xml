@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shelf_3">Kitaplık rafı · son 3</string>
+    <string name="shelf_5">Kitaplık rafı · son 5</string>
+    <string name="shelf_description">Son kitapların; birine dokunup aç ya da ilkini sesli dinle</string>
+    <string name="shelf_empty">Henüz kitap yok</string>
+    <string name="shelf_read_aloud">Sesli oku</string>
+    <string name="shelf_stop">Durdur</string>
+</resources>

@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:archive/archive.dart';
+import 'package:archive/archive_io.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:html/dom.dart' as dom;
@@ -181,7 +181,7 @@ Future<PageSource> openBook(String path, {bool reflowPdf = false}) async {
     case '.epub':
       return EpubSource.parse(await File(path).readAsBytes(), _titleOf(path));
     case '.cbz' || '.cbt':
-      return CbzSource.parse(await File(path).readAsBytes(), _titleOf(path), tar: path.toLowerCase().endsWith('.cbt'));
+      return CbzSource.open(path, _titleOf(path));
     case '.cbr' || '.cb7':
       return ImageFolderSource.unpack(path, _titleOf(path));
     case '.djvu' || '.djv':
@@ -945,21 +945,25 @@ List<Inline> _trimmed(List<Inline> inlines) {
 // Comics
 
 class CbzSource extends PageSource {
-  CbzSource._(this.title, this._images);
+  CbzSource._(this.title, Archive archive, [this._path, this._input])
+      : _images = archive.files.where((f) => f.isFile && _isPicture(f.name)).toList()..sort((a, b) => a.name.compareTo(b.name));
   @override
   final String title;
   final List<ArchiveFile> _images;
+  final String? _path;
+  final InputFileStream? _input;
 
   @override
   int get pageCount => _images.length;
 
-  static CbzSource parse(Uint8List bytes, String title, {bool tar = false}) {
-    final zip = tar ? TarDecoder().decodeBytes(bytes) : ZipDecoder().decodeBytes(bytes);
-    final images = zip.files
-        .where((f) => f.isFile && RegExp(r'\.(jpe?g|png|webp|gif|bmp)$', caseSensitive: false).hasMatch(f.name))
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
-    return CbzSource._(title, images);
+  static CbzSource parse(Uint8List bytes, String title, {bool tar = false}) =>
+      CbzSource._(title, tar ? TarDecoder().decodeBytes(bytes) : ZipDecoder().decodeBytes(bytes));
+
+  /// Reads the archive from the file as pages are needed, instead of holding all of it in memory.
+  static CbzSource open(String path, String title) {
+    final input = InputFileStream(path);
+    final archive = path.toLowerCase().endsWith('.cbt') ? TarDecoder().decodeStream(input) : ZipDecoder().decodeStream(input);
+    return CbzSource._(title, archive, path, input);
   }
 
   @override
@@ -967,8 +971,11 @@ class CbzSource extends PageSource {
 
   @override
   Future<void> prepare(Size page, PageStyle style, {void Function(double)? onProgress}) async {
-    pageSizes ??= [for (final f in _images) await _measure(f.content)];
+    pageSizes ??= await _sizesOf(_path, _images.length, (i) => _measure(_images[i].content));
   }
+
+  @override
+  void dispose() => _input?.closeSync();
 
   @override
   Future<Uint8List?> coverBytes() async => _images.isEmpty ? null : _images.first.content;
@@ -997,10 +1004,11 @@ class CbzSource extends PageSource {
 
 /// A comic unpacked to a folder: RAR and 7z archives can only be read from start to end, so pages cannot be fetched one by one.
 class ImageFolderSource extends PageSource {
-  ImageFolderSource._(this.title, this._files);
+  ImageFolderSource._(this.title, this._files, this._path);
   @override
   final String title;
   final List<File> _files;
+  final String _path;
 
   static Future<ImageFolderSource> unpack(String path, String title) async {
     final folder = await comicFolder(path);
@@ -1014,7 +1022,7 @@ class ImageFolderSource extends PageSource {
     final files = folder.listSync().whereType<File>().where((f) => _isPicture(f.path)).toList()
       ..sort((a, b) => a.path.compareTo(b.path));
     if (files.isEmpty) throw const FormatException('Bu dosyada görsel bulunamadı.');
-    return ImageFolderSource._(title, files);
+    return ImageFolderSource._(title, files, path);
   }
 
   @override
@@ -1025,7 +1033,7 @@ class ImageFolderSource extends PageSource {
 
   @override
   Future<void> prepare(Size page, PageStyle style, {void Function(double)? onProgress}) async {
-    pageSizes ??= [for (final f in _files) await _measure(await f.readAsBytes())];
+    pageSizes ??= await _sizesOf(_path, _files.length, (i) => _measureFile(_files[i]));
   }
 
   @override
@@ -1055,6 +1063,8 @@ class ImageFolderSource extends PageSource {
 
 /// The size of an encoded picture, read from its header without decoding it.
 Future<Size> _measure(Uint8List bytes) async {
+  final quick = headerSize(bytes);
+  if (quick != null) return quick;
   final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
   final desc = await ui.ImageDescriptor.encoded(buffer);
   final size = Size(desc.width.toDouble(), desc.height.toDouble());
@@ -1063,10 +1073,82 @@ Future<Size> _measure(Uint8List bytes) async {
   return size;
 }
 
-/// Where a RAR or 7z comic is unpacked: one folder per file and size, so two archives with one name never share it.
-Future<Directory> comicFolder(String path) async {
-  final size = File(path).existsSync() ? File(path).lengthSync() : 0;
-  return Directory(p.join((await getApplicationCacheDirectory()).path, 'comics', '$path:$size'.hashCode.toRadixString(36)));
+/// A picture file's size from its first bytes, reading the whole file only if they do not tell.
+Future<Size> _measureFile(File f) async {
+  final raf = await f.open();
+  try {
+    final head = await raf.read(65536);
+    final quick = headerSize(head);
+    if (quick != null) return quick;
+  } finally {
+    await raf.close();
+  }
+  return _measure(await f.readAsBytes());
 }
+
+/// Width and height from a PNG, JPEG, GIF, WebP or BMP header; null if the header is not one of those or is cut short.
+/// A JPEG with Exif may be turned by its orientation tag, so it is left to the full decoder.
+Size? headerSize(Uint8List b) {
+  int be16(int i) => b[i] << 8 | b[i + 1];
+  int le16(int i) => b[i] | b[i + 1] << 8;
+  int le24(int i) => le16(i) | b[i + 2] << 16;
+  bool at(int i, String tag) => b.length >= i + tag.length && String.fromCharCodes(b, i, i + tag.length) == tag;
+  Size size(int w, int h) => Size(w.toDouble(), h.toDouble());
+  try {
+    if (at(1, 'PNG')) return size(be16(16) << 16 | be16(18), be16(20) << 16 | be16(22));
+    if (at(0, 'GIF8')) return size(le16(6), le16(8));
+    if (at(0, 'BM')) return size(le16(18) | le16(20) << 16, (le16(22) | le16(24) << 16).toSigned(32).abs());
+    if (at(0, 'RIFF') && at(8, 'WEBP')) {
+      if (at(12, 'VP8X')) return size(le24(24) + 1, le24(27) + 1);
+      if (at(12, 'VP8L')) return size(1 + ((b[22] & 0x3F) << 8 | b[21]), 1 + ((b[24] & 0xF) << 10 | b[23] << 2 | (b[22] & 0xC0) >> 6));
+      if (at(12, 'VP8 ')) return size(le16(26) & 0x3FFF, le16(28) & 0x3FFF);
+      return null;
+    }
+    if (b.length < 4 || b[0] != 0xFF || b[1] != 0xD8) return null;
+    var i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] != 0xFF) return null;
+      final marker = b[i + 1];
+      if (marker == 0xFF) {
+        i++;
+        continue;
+      }
+      if (marker == 0xE1 && at(i + 4, 'Exif')) return null;
+      if (marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC) return size(be16(i + 7), be16(i + 5));
+      i += 2 + be16(i + 2);
+    }
+  } on RangeError {
+    return null;
+  }
+  return null;
+}
+
+String _cacheKey(String path) {
+  final size = File(path).existsSync() ? File(path).lengthSync() : 0;
+  return '$path:$size'.hashCode.toRadixString(36);
+}
+
+/// Each page's size, measured once per file and kept, so a long comic opens at once the second time.
+Future<List<Size>> _sizesOf(String? path, int count, Future<Size> Function(int) measure) async {
+  final kept = path == null ? null : File(p.join((await getApplicationCacheDirectory()).path, 'sizes', '${_cacheKey(path)}.json'));
+  if (kept != null && kept.existsSync()) {
+    try {
+      final n = (jsonDecode(await kept.readAsString()) as List<dynamic>).cast<num>();
+      if (n.length == count * 2) return [for (var i = 0; i < count; i++) Size(n[i * 2].toDouble(), n[i * 2 + 1].toDouble())];
+    } on FormatException {
+      // written half way; measure again
+    }
+  }
+  final sizes = [for (var i = 0; i < count; i++) await measure(i)];
+  if (kept != null) {
+    await kept.create(recursive: true);
+    await kept.writeAsString(jsonEncode([for (final s in sizes) ...[s.width, s.height]]));
+  }
+  return sizes;
+}
+
+/// Where a RAR or 7z comic is unpacked: one folder per file and size, so two archives with one name never share it.
+Future<Directory> comicFolder(String path) async =>
+    Directory(p.join((await getApplicationCacheDirectory()).path, 'comics', _cacheKey(path)));
 
 bool _isPicture(String name) => RegExp(r'\.(jpe?g|png|webp|gif|bmp)$', caseSensitive: false).hasMatch(name);
