@@ -90,7 +90,7 @@ open class ShelfWidget(private val count: Int) : AppWidgetProvider() {
                 v.setViewVisibility(id, View.VISIBLE)
                 val cover = book.optString("cover")
                 val bitmap = if (cover.isEmpty()) null else BitmapFactory.decodeFile(cover, BitmapFactory.Options().apply { inSampleSize = sampleFor(cover) })
-                if (bitmap != null) v.setImageViewBitmap(id, bitmap) else v.setImageViewResource(id, R.drawable.ic_launcher_foreground)
+                v.setImageViewBitmap(id, bitmap ?: titleCover(context, book.optString("title")))
                 v.setContentDescription(id, book.optString("title"))
                 v.setOnClickPendingIntent(id, open(context, slot, book.getString("path"), false))
             }
@@ -107,6 +107,24 @@ open class ShelfWidget(private val count: Int) : AppWidgetProvider() {
                 if (books.length() > 0) v.setOnClickPendingIntent(R.id.play, open(context, 9, books.getJSONObject(0).getString("path"), true))
             }
             return v
+        }
+
+        /** A book without a cover gets its title on paper, as on the library shelf. */
+        private fun titleCover(context: Context, title: String): android.graphics.Bitmap {
+            val w = 200
+            val h = 300
+            val bitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bitmap)
+            canvas.drawColor(0xFFECE7DF.toInt())
+            val paint = android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFF2A2622.toInt()
+                textSize = 22f
+                typeface = android.graphics.Typeface.SERIF
+            }
+            val layout = android.text.StaticLayout.Builder.obtain(title, 0, title.length, paint, w - 28).setMaxLines(5).setEllipsize(android.text.TextUtils.TruncateAt.END).build()
+            canvas.translate(14f, 16f)
+            layout.draw(canvas)
+            return bitmap
         }
 
         /** A cover is drawn about 240 px wide at most, which keeps the shelf well inside the widget's memory limit. */

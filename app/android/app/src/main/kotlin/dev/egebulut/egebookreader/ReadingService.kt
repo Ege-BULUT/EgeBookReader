@@ -12,6 +12,8 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
@@ -32,6 +34,28 @@ class ReadingService : Service() {
     private var session: MediaSession? = null
     private var focus: AudioFocusRequest? = null
     private var listening = false
+    private var silence: AudioTrack? = null
+
+    // The system voice speaks from the TTS engine's process, so Android would not count this app as playing and would
+    // send headset buttons to the last music app (which then starts). A silent loop from here makes the buttons ours.
+    private fun holdSilence(on: Boolean) {
+        if (!on) return silence?.pause() ?: Unit
+        val track = silence ?: run {
+            val bytes = 1600 // 0.1 s of 16-bit mono at 8 kHz
+            AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(8000).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .setBufferSizeInBytes(bytes)
+                .build()
+                .apply {
+                    write(ByteArray(bytes), 0, bytes)
+                    setLoopPoints(0, bytes / 2, -1)
+                }
+                .also { silence = it }
+        }
+        track.play()
+    }
     private val noisy = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) { MainActivity.sendSpeechAction(ACTION_PAUSE) }
     }
@@ -80,6 +104,7 @@ class ReadingService : Service() {
                 ShelfWidget.setSpeech(this, title, paused)
                 holdWakeLock()
                 holdFocus(!paused)
+                holdSilence(!paused)
                 if (!listening) {
                     val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
                     if (Build.VERSION.SDK_INT >= 33) registerReceiver(noisy, filter, RECEIVER_NOT_EXPORTED) else registerReceiver(noisy, filter)
@@ -156,6 +181,8 @@ class ReadingService : Service() {
         ShelfWidget.setSpeech(this, null, false)
         if (wakeLock?.isHeld == true) wakeLock?.release()
         holdFocus(false)
+        silence?.release()
+        silence = null
         session?.release()
         session = null
         if (listening) unregisterReceiver(noisy)

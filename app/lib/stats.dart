@@ -133,7 +133,7 @@ class StatsScreen extends StatelessWidget {
                   Row(children: [
                     Icon(Icons.local_fire_department_outlined, color: c.accent, size: 20),
                     const SizedBox(width: 6),
-                    Text('${stats.streak()} ${tr('gün üst üste')}', style: TextStyle(color: c.muted, fontSize: 14)),
+                    Text('${stats.streak()} ${stats.streak() == 1 && uiLanguage != 'tr' ? 'day in a row' : tr('gün üst üste')}', style: TextStyle(color: c.muted, fontSize: 14)),
                   ]),
                 ]),
               ),

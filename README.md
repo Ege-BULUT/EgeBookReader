@@ -71,6 +71,16 @@ Most readers show you a document. This one tries to give you a book.
     <td align="center"><sub>Tap a picture to open it</sub></td>
     <td align="center"><sub>Settings over the live page</sub></td>
   </tr>
+  <tr>
+    <td><img src="docs/assets/library.jpg" alt="The library with a continue-reading card and a Calibre book with its cover"></td>
+    <td><img src="docs/assets/highlights.jpg" alt="Two sentences highlighted in green and yellow, with the note sheet open"></td>
+    <td><img src="docs/assets/widget.jpg" alt="The bookshelf widget on the home screen with four books and a read-aloud button"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>The library</sub></td>
+    <td align="center"><sub>Highlights and notes</sub></td>
+    <td align="center"><sub>A bookshelf on the home screen</sub></td>
+  </tr>
 </table>
 
 <p align="center">

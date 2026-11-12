@@ -1283,7 +1283,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
         child: shown == null
             ? null
             : OverflowBox(
+                minWidth: 0,
                 maxWidth: 200,
+                minHeight: 0,
                 alignment: Alignment.centerLeft,
                 child: Container(
                   margin: const EdgeInsets.only(left: 34),
@@ -1292,7 +1294,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.brightness_6_outlined, size: 18, color: c.paper),
                     const SizedBox(width: 6),
-                    Text('%${(shown * 100).round()}', style: TextStyle(color: c.paper, fontSize: 14)),
+                    Text(uiLanguage == 'tr' ? '%${(shown * 100).round()}' : '${(shown * 100).round()}%', style: TextStyle(color: c.paper, fontSize: 14)),
                   ]),
                 ),
               ),
