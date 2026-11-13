@@ -15,8 +15,10 @@ import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import 'l10n.dart';
 import 'main.dart' show settings;
+import 'natural.dart';
 import 'settings.dart';
 import 'sources.dart';
+import 'voiceclone.dart';
 
 final speaker = Speaker();
 final voices = VoiceStore();
@@ -39,10 +41,18 @@ class VoiceModel {
     required this.voiceCount,
     required this.license,
     required this.source,
+    this.women = 0,
+    this.files,
   });
   final String id, name, size, license, source;
   final List<String> languages;
   final int voiceCount;
+
+  /// How many of the voices are women's, counted from the first (Supertonic has an order of its own).
+  final int women;
+
+  /// Graphs fetched one by one (saved under the key) instead of a sherpa-onnx archive; run by lib/natural.dart.
+  final Map<String, String>? files;
 
   String get url => 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/$id.tar.bz2';
   bool get isSupertonic => id.contains('supertonic');
@@ -54,7 +64,7 @@ const supertonicOrder = [4, 8, 9, 3, 0, 1, 2, 5, 6, 7];
 /// "Kadın 2", "Erkek 1"…: voice [i] of [m] named by whether it is a woman's or a man's, counted in that group.
 /// Supertonic's styles 0–4 are women and 5–9 men; Kokoro 1.1's speakers 0–57 are women and 58–102 men.
 String voiceLabel(VoiceModel m, int i) {
-  bool woman(int j) => m.isSupertonic ? supertonicOrder[j] < 5 : j < 58;
+  bool woman(int j) => m.isSupertonic ? supertonicOrder[j] < 5 : j < m.women;
   final n = [for (var j = 0; j <= i; j++) j].where((j) => woman(j) == woman(i)).length;
   return '${tr(woman(i) ? 'Kadın' : 'Erkek')} $n';
 }
@@ -75,10 +85,46 @@ const voiceCatalog = [
     size: '140 MB',
     languages: ['en', 'zh'],
     voiceCount: 103,
+    women: 58,
     license: 'Apache-2.0',
     source: 'https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh',
   ),
+  VoiceModel(
+    id: 'antalia-2-mini-int8',
+    name: 'Antalia-2 Mini',
+    size: '10 MB',
+    languages: ['tr'],
+    voiceCount: 1,
+    license: 'Apache-2.0, PatientDesk AI',
+    source: 'https://huggingface.co/cloud0day3/antalia-mini',
+    files: {
+      'text.onnx': '$_antalia/text.int8.onnx',
+      'cond.onnx': '$_antalia/cond.onnx',
+      'flow.onnx': '$_antalia/flow.int8.onnx',
+      'vocoder.onnx': '$_antalia/vocoder.int8.onnx',
+    },
+  ),
+  VoiceModel(
+    id: 'ahenk-cep-int8',
+    name: 'Ahenk Cep',
+    size: '13 MB',
+    languages: ['tr'],
+    voiceCount: 1,
+    women: 1,
+    license: 'CC BY 4.0. Atıf: Ahenk Cep, Ahenk (github.com/ozguradmin/ahenk-turkish-tts); EMA Lightning (Apache-2.0); Alania verileri, PatientDesk AI (CC BY 4.0)',
+    source: 'https://huggingface.co/ozgurguler/ahenk-cep-tr',
+    files: {
+      'text.onnx': '$_ahenk/text.int8.onnx',
+      'cond.onnx': '$_ahenk/cond.int8.onnx',
+      'step.onnx': '$_ahenk/step.int8.onnx',
+      'decoder.onnx': '$_ahenk/decoder.f16.onnx',
+    },
+  ),
 ];
+
+// Pinned to the commits whose graphs were checked (memory/research/tts.md).
+const _antalia = 'https://huggingface.co/spaces/cloud0day3/antalia-mini/resolve/e7e3b1e3e83db5ca4cad925cc6d2563766e763e9/models';
+const _ahenk = 'https://huggingface.co/ozgurguler/ahenk-cep-tr/resolve/345c4cbb934815fa96ffd0d5061fd913237544bc/onnx';
 
 class VoiceStore extends ChangeNotifier {
   late Directory _dir;
@@ -98,21 +144,23 @@ class VoiceStore extends ChangeNotifier {
     error = null;
     progress[m.id] = 0;
     notifyListeners();
+    try {
+      await (m.files != null ? _fetchFiles(m) : _fetchArchive(m));
+    } catch (e) {
+      debugPrint('voice download failed: $e');
+      error = tr('Ses modeli indirilemedi. Bağlantını ve boş alanı kontrol et.');
+    }
+    progress.remove(m.id);
+    notifyListeners();
+  }
+
+  Future<void> _fetchArchive(VoiceModel m) async {
     final archive = File(p.join(_dir.path, '${m.id}.tar.bz2'));
     try {
-      final client = HttpClient();
-      final response = await (await client.getUrl(Uri.parse(m.url))).close();
-      if (response.statusCode != 200) throw HttpException('HTTP ${response.statusCode}');
-      final sink = archive.openWrite();
-      var got = 0;
-      await for (final chunk in response) {
-        sink.add(chunk);
-        got += chunk.length;
-        progress[m.id] = response.contentLength > 0 ? got / response.contentLength : null;
+      await fetchFile(m.url, archive, (f) {
+        progress[m.id] = f;
         notifyListeners();
-      }
-      await sink.close();
-      client.close();
+      });
       progress[m.id] = null; // unpacking has no percentage
       notifyListeners();
       final to = _dir.path, tar = '${archive.path}.tar';
@@ -125,15 +173,24 @@ class VoiceStore extends ChangeNotifier {
         await output.close();
         await extractFileToDisk(tar, to);
       });
-    } catch (e) {
-      debugPrint('voice download failed: $e');
-      error = tr('Ses modeli indirilemedi. Bağlantını ve boş alanı kontrol et.');
+    } finally {
+      if (archive.existsSync()) await archive.delete();
+      final leftover = File('${archive.path}.tar');
+      if (leftover.existsSync()) await leftover.delete();
     }
-    if (archive.existsSync()) await archive.delete();
-    final leftover = File('${archive.path}.tar');
-    if (leftover.existsSync()) await leftover.delete();
-    progress.remove(m.id);
-    notifyListeners();
+  }
+
+  /// Each graph into the model's folder; the LICENSE file, written last, marks it installed.
+  Future<void> _fetchFiles(VoiceModel m) async {
+    final dir = await Directory(dirOf(m)).create(recursive: true);
+    final files = m.files!;
+    for (final (i, MapEntry(key: name, value: url)) in files.entries.indexed) {
+      await fetchFile(url, File(p.join(dir.path, name)), (f) {
+        progress[m.id] = (i + f) / files.length;
+        notifyListeners();
+      });
+    }
+    await File(p.join(dir.path, 'LICENSE')).writeAsString('${m.name}\n${m.license}\n${m.source}\n');
   }
 
   Future<void> remove(VoiceModel m) async {
@@ -152,6 +209,27 @@ class VoiceStore extends ChangeNotifier {
   }
 }
 
+/// Downloads [url] to [to] through a .part file; a .gz URL is unpacked on the way.
+Future<void> fetchFile(String url, File to, void Function(double) onProgress) async {
+  final client = HttpClient();
+  final part = File('${to.path}.part');
+  try {
+    final response = await (await client.getUrl(Uri.parse(url))).close();
+    if (response.statusCode != 200) throw HttpException('HTTP ${response.statusCode}');
+    var got = 0;
+    final counted = response.map((chunk) {
+      got += chunk.length;
+      if (response.contentLength > 0) onProgress(got / response.contentLength);
+      return chunk;
+    });
+    await (url.endsWith('.gz') ? counted.transform(gzip.decoder) : counted).pipe(part.openWrite());
+    await part.rename(to.path);
+  } finally {
+    client.close();
+    if (part.existsSync()) await part.delete();
+  }
+}
+
 class _SynthJob {
   _SynthJob(this.text, this.sid, this.speed, this.lang, this.reply);
   final String text;
@@ -164,6 +242,7 @@ class _SynthJob {
 /// Synthesis blocks for seconds, so the model lives on an isolate of its own.
 void _synthMain((VoiceModel, String, SendPort) start) {
   final (model, d, ready) = start;
+  if (model.files != null) return _naturalMain(model, d, ready);
   sherpa.initBindings();
   final sherpa.OfflineTtsModelConfig config;
   if (model.isSupertonic) {
@@ -204,14 +283,35 @@ void _synthMain((VoiceModel, String, SendPort) start) {
           extra: model.isSupertonic ? {'lang': job.lang ?? 'na'} : const {},
         ),
       );
-      job.reply.send(_wav(audio.samples, audio.sampleRate));
+      job.reply.send(wavBytes(audio.samples, audio.sampleRate));
     } catch (e) {
       job.reply.send('$e');
     }
   });
 }
 
-Uint8List _wav(Float32List samples, int rate) {
+/// The Turkish voices of lib/natural.dart, on the same kind of isolate.
+void _naturalMain(VoiceModel model, String d, SendPort ready) {
+  final Float32List Function(String, {double speed}) say;
+  if (model.id.startsWith('antalia')) {
+    say = Antalia(d).say;
+  } else {
+    say = AhenkCep(d).say;
+  }
+  final jobs = ReceivePort();
+  ready.send(jobs.sendPort);
+  jobs.listen((message) {
+    final job = message as _SynthJob;
+    try {
+      job.reply.send(wavBytes(say(job.text, speed: job.speed), naturalRate));
+    } catch (e) {
+      job.reply.send('$e');
+    }
+  });
+}
+
+/// A 16-bit mono WAV of [samples].
+Uint8List wavBytes(Float32List samples, int rate) {
   final bytes = ByteData(44 + samples.length * 2);
   void tag(int at, String s) {
     for (var i = 0; i < 4; i++) {
@@ -495,7 +595,7 @@ class Speaker extends ChangeNotifier {
   }
 
   Future<File> _audioFor(SpokenSentence s, Future<Uint8List> Function(SpokenSentence) make) =>
-      _audio['${settings.ttsVoice}|${settings.ttsSpeed}|${s.text}'] ??= () async {
+      _audio['${settings.ttsVoice}|${settings.cloneId}|${settings.ttsSpeed}|${s.text}'] ??= () async {
         final bytes = await make(s);
         final dir = await getTemporaryDirectory();
         final file = File(p.join(dir.path, 'speech-${_fileNumber++ % 8}.audio'));
@@ -588,7 +688,7 @@ class Speaker extends ChangeNotifier {
   final _preview = AudioPlayer();
 
   /// Says [text] once in a voice the reader is choosing, without touching what is being read.
-  Future<void> preview(String text, String? lang, {VoiceModel? model, int voice = 0, String? systemVoice}) async {
+  Future<void> preview(String text, String? lang, {VoiceModel? model, int voice = 0, String? systemVoice, bool cloned = true}) async {
     await _preview.stop();
     if (model == null) {
       if (lang != null) await _system.setLanguage(lang);
@@ -598,11 +698,12 @@ class Speaker extends ChangeNotifier {
       await _system.speak(text);
       return;
     }
-    final bytes = await synthesize(SpokenSentence(text, lang, 0, const []), model, voice: voice);
+    final bytes = await synthesize(SpokenSentence(text, lang, 0, const []), model, voice: voice, cloned: cloned);
     await _preview.play(BytesSource(bytes, mimeType: 'audio/wav'));
   }
 
-  Future<Uint8List> synthesize(SpokenSentence s, VoiceModel model, {int? voice, double? speed}) async {
+  /// [s] spoken by [model], then in the reader's own voice when one is chosen, unless not [cloned].
+  Future<Uint8List> synthesize(SpokenSentence s, VoiceModel model, {int? voice, double? speed, bool cloned = true}) async {
     if (_loadedModel != model.id) {
       await releaseModelKeepingSpeech();
       final ready = ReceivePort();
@@ -616,6 +717,8 @@ class Speaker extends ChangeNotifier {
     final result = await reply.first.timeout(const Duration(minutes: 2), onTimeout: () => 'timed out');
     reply.close();
     if (result is String) throw StateError(result);
+    final clone = cloned ? cloner.active : null;
+    if (clone != null) return cloner.convert(result as Uint8List, model, voice ?? settings.ttsVoice, clone);
     return result as Uint8List;
   }
 

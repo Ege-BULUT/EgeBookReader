@@ -16,6 +16,7 @@ import 'motion.dart';
 import 'onboarding.dart';
 import 'settings.dart';
 import 'tts.dart';
+import 'voiceclone.dart';
 import 'voicing.dart';
 import 'zones.dart';
 
@@ -78,7 +79,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([settings, colorizer, voices, voicing, library]),
+      listenable: Listenable.merge([settings, colorizer, voices, voicing, library, cloner]),
       builder: (context, _) {
         final c = settings.palette;
         final motion = motionOn(context, settings);
@@ -450,6 +451,7 @@ extension on _SettingsSheetState {
         Heading('Telefona kurulan sesler'),
         for (final m in voiceCatalog) Padding(padding: const EdgeInsets.only(bottom: 10), child: _voiceCard(m)),
         if (voices.error != null) Text(voices.error!, style: TextStyle(color: c.accent, fontSize: 13)),
+        ..._ownVoice(),
         ..._autoVoice(),
       ],
       if (s.voiceSource == VoiceSource.api) ...[
@@ -499,6 +501,91 @@ extension on _SettingsSheetState {
         ),
         TextButton(onPressed: voicing.bytes == 0 ? null : voicing.clear, style: TextButton.styleFrom(foregroundColor: c.accent), child: Text(tr('Sil'))),
       ]),
+    ];
+  }
+
+  /// The reader's own voices on top of the chosen model voice, and the converter that makes them.
+  List<Widget> _ownVoice() {
+    final c = settings.palette;
+    final active = cloner.active;
+    Widget choice(String label, bool selected, VoidCallback onTap, {VoidCallback? onDelete}) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Material(
+            color: c.surface,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6), side: BorderSide(color: selected ? c.accent : Colors.transparent, width: 1.4)),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 4, 4, 4),
+                child: Row(children: [
+                  Expanded(child: Text(label, style: TextStyle(color: c.ink, fontSize: 15))),
+                  if (onDelete != null)
+                    IconButton(tooltip: tr('Sil'), onPressed: onDelete, icon: Icon(Icons.delete_outline_rounded, color: c.muted, size: 20))
+                  else
+                    const SizedBox(height: 40),
+                ]),
+              ),
+            ),
+          ),
+        );
+    return [
+      Heading('Kendi sesim'),
+      Text(tr('Seçili ses ne okursa, kaydettiğin sese ya da bir yakınının sesine çevrilir. Telefonda, internetsiz çalışır; sesin hazırlanması biraz uzar.'),
+          style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+      const SizedBox(height: 10),
+      Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(6)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text(tr('Ses dönüştürücü (OpenVoice v2)'), style: TextStyle(color: c.ink, fontSize: 16, fontWeight: FontWeight.w500))),
+            Text('35 MB', style: TextStyle(color: c.muted, fontSize: 13)),
+          ]),
+          const SizedBox(height: 4),
+          Text('${tr('Lisans')}: MIT, MyShell.', style: TextStyle(color: c.muted, fontSize: 13)),
+          SelectableText('https://github.com/myshell-ai/OpenVoice', style: TextStyle(color: c.muted, fontSize: 12)),
+          const SizedBox(height: 8),
+          if (cloner.busy)
+            LinearProgressIndicator(value: cloner.progress, minHeight: 3, color: c.accent, backgroundColor: c.line)
+          else if (!cloner.installed)
+            FilledButton(
+              onPressed: cloner.download,
+              style: FilledButton.styleFrom(backgroundColor: c.accent, foregroundColor: c.paper),
+              child: Text(tr('İndir')),
+            )
+          else
+            TextButton(
+              onPressed: cloner.remove,
+              style: TextButton.styleFrom(foregroundColor: c.muted, padding: EdgeInsets.zero),
+              child: Text(tr('Sil')),
+            ),
+        ]),
+      ),
+      if (cloner.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(cloner.error!, style: TextStyle(color: c.accent, fontSize: 13))),
+      if (cloner.installed) ...[
+        const SizedBox(height: 10),
+        choice(tr('Kapalı: seçili sesin kendisi'), active == null, () => cloner.choose(null)),
+        for (final v in cloner.clones)
+          choice(v.name, active?.id == v.id, voices.selected == null ? () {} : () => cloner.choose(v), onDelete: () => cloner.delete(v)),
+        if (voices.selected == null)
+          Text(tr('Önce yukarıdan bir ses seç; kendi sesin onun üstüne çalışır.'), style: TextStyle(color: c.muted, fontSize: 13)),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: c.paper,
+              builder: (_) => const RecordVoiceSheet(),
+            ),
+            icon: const Icon(Icons.mic_rounded),
+            label: Text(tr('Yeni ses kaydet')),
+            style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero),
+          ),
+        ),
+      ],
     ];
   }
 

@@ -241,3 +241,12 @@ that names the old one.
   - e-ink mode;
   - the reliability list: migration tests with automatic backup, surviving a new phone, unattended end-to-end tests, and performance limits.
 - They are recorded in ROADMAP.md and in openlead as M14–M18 and T-0002 to T-0015.
+
+## 2026-11-13 D26 Natural Turkish voices and "Kendi sesim" (0.5.0)
+
+- Two small Turkish voices download from Hugging Face, pinned to a commit, and run through `onnx.dart` on the ONNX Runtime that sherpa-onnx already ships:
+  - Antalia-2 Mini (PatientDesk AI), Apache-2.0, 10 MB int8. https://huggingface.co/cloud0day3/antalia-mini; files from the Space `cloud0day3/antalia-mini` at e7e3b1e3.
+  - Ahenk Cep, CC BY 4.0 (credit shown in the voice card), 13 MB int8. https://huggingface.co/ozgurguler/ahenk-cep-tr at 345c4cbb; 16 flow steps, the release default (8 steps dropped words in an ASR check).
+- The Turkish normaliser (numbers, dates, times, units, currency, abbreviations, Roman numerals) is a Dart port of Antalia's, in `trnorm.dart`. Phone numbers, IBANs and medical shorthand were left out.
+- "Kendi sesim" puts OpenVoice v2's tone colour converter (MIT, myshell-ai/OpenVoice) after any model voice. The converter (se.onnx and vc.int8.onnx, exported by `research/voiceclone/export_onnx.py`) is ours to host: `openvoice-v2-se.onnx.gz` and `openvoice-v2-vc.int8.onnx.gz` on the `models-v1` release, about 35 MB, downloaded only when the reader asks.
+- A recording is kept only as its 256-number embedding; the audio is deleted. Saving asks for consent ("Bu ses benim ya da sahibinin izni var"). The catch-up sheet offers the voice used before the clone, since converting is slower.

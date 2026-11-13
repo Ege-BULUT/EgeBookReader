@@ -14,6 +14,7 @@ import 'main.dart' show device, settings;
 import 'settings.dart';
 import 'sources.dart' show SpokenSentence;
 import 'tts.dart';
+import 'voiceclone.dart';
 
 final voicing = Voicing();
 
@@ -59,8 +60,8 @@ class Voicing extends ChangeNotifier {
     bytes = [for (final f in _dir!.listSync().whereType<File>()) f.lengthSync()].fold(0, (a, b) => a + b);
   }
 
-  String _key(SpokenSentence s, VoiceModel m) =>
-      speechKey('${m.id}|${speaker.sidOf(m, settings.ttsVoice)}|${s.lang}|${s.text}'); // made at 1x, sped up as it plays
+  String _key(SpokenSentence s, VoiceModel m) => speechKey(
+      '${m.id}|${speaker.sidOf(m, settings.ttsVoice)}|${cloner.active?.id ?? ''}|${s.lang}|${s.text}'); // made at 1x, sped up as it plays
 
   /// The kept voicing of [s], if it has been made.
   File? fileFor(SpokenSentence s, VoiceModel m) {
@@ -75,7 +76,10 @@ class Voicing extends ChangeNotifier {
   String get label => '%${(fraction * 100).toStringAsFixed(2)} · ${page - from}/${to - from}';
 
   /// Seconds it takes this phone to make, and to say at 1x, one character in [m]; null until measured.
-  List<double>? paceOf(VoiceModel m) => settings.voicePace[m.id];
+  List<double>? paceOf(VoiceModel m) => settings.voicePace[_paceKey(m)];
+
+  /// Speaking in the reader's own voice takes longer, so it is measured on its own.
+  String _paceKey(VoiceModel m) => cloner.active == null ? m.id : '${m.id}+clone';
 
   /// Voices pages [from] to [to] of a book. Those before [hurryUntil] go at full speed, since someone waits for
   /// them; the future completes once they are ready (false when stopped first). The rest go gently.
@@ -165,8 +169,8 @@ class Voicing extends ChangeNotifier {
   }
 
   void _learn(VoiceModel m, double make, double lasts) {
-    final old = settings.voicePace[m.id];
-    settings.voicePace[m.id] = old == null ? [make, lasts] : [old[0] * 0.8 + make * 0.2, old[1] * 0.8 + lasts * 0.2];
+    final old = settings.voicePace[_paceKey(m)];
+    settings.voicePace[_paceKey(m)] = old == null ? [make, lasts] : [old[0] * 0.8 + make * 0.2, old[1] * 0.8 + lasts * 0.2];
     if (_learned++ % 20 == 0) settings.update((_) {}); // saved now and then, not after every sentence
   }
 
@@ -355,10 +359,20 @@ class CatchUpSheet extends StatefulWidget {
   State<CatchUpSheet> createState() => _CatchUpSheetState();
 }
 
+/// The voice the catch-up sheet starts on: the one used before the reader's own voice (which is slower to make),
+/// else the one chosen last.
+(VoiceModel?, int) catchUpStart() {
+  final before = cloner.active == null ? null : settings.voiceBeforeClone?.split('|');
+  if (before != null) {
+    final m = voiceCatalog.where((m) => m.id == before.first && voices.installed(m)).firstOrNull;
+    return (m, m == null ? 0 : int.tryParse(before.last) ?? 0);
+  }
+  return (settings.voiceSource == VoiceSource.model ? voices.selected : null, settings.ttsVoice);
+}
+
 class _CatchUpSheetState extends State<CatchUpSheet> {
-  // Starts on the voice chosen last.
-  VoiceModel? model = settings.voiceSource == VoiceSource.model ? voices.selected : null;
-  int voice = settings.ttsVoice;
+  late VoiceModel? model = catchUpStart().$1;
+  late int voice = catchUpStart().$2;
   List<Map<String, String>> system = const [];
   int systemIndex = 0;
 
@@ -397,12 +411,13 @@ class _CatchUpSheetState extends State<CatchUpSheet> {
   void _preview() {
     final text = widget.sample?.text ?? '';
     final say = text.length > 140 ? '${text.substring(0, 140)}…' : (text.isEmpty ? tr('Bu ses böyle duyuluyor.') : text);
-    unawaited(speaker.preview(say, widget.sample?.lang, model: model, voice: voice, systemVoice: _systemVoice).catchError((_) {}));
+    unawaited(speaker.preview(say, widget.sample?.lang, model: model, voice: voice, systemVoice: _systemVoice, cloned: false).catchError((_) {}));
   }
 
   void _apply() {
     final m = model;
     settings.update((x) {
+      x.cloneId = null; // the plain voice from here
       if (m == null) {
         x.voiceSource = VoiceSource.system;
         x.systemVoice = _systemVoice;

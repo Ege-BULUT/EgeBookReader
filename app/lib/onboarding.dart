@@ -273,7 +273,7 @@ class _VoicePageState extends State<_VoicePage> with AutomaticKeepAliveClientMix
       for (final (name, label, voice) in _clips)
         _Choice(
           label: tr(label),
-          selected: s.voiceSource == VoiceSource.model && s.ttsVoice == voice,
+          selected: s.voiceSource == VoiceSource.model && s.ttsModelId == voiceCatalog.first.id && s.ttsVoice == voice,
           onTap: () => _playClip(name, voice),
           trailing: mark(name),
         ),
@@ -300,7 +300,30 @@ class _VoicePageState extends State<_VoicePage> with AutomaticKeepAliveClientMix
             ),
         ]),
       ),
+      if (_clipLanguage == 'tr') ...[
+        const SizedBox(height: 14),
+        Text(tr('Küçük Türkçe sesler'), style: TextStyle(color: c.ink, fontSize: 15, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
+        for (final m in voiceCatalog.where((m) => m.files != null))
+          _Choice(
+            label: '${m.name} · ${voiceLabel(m, 0)}',
+            detail: voices.progress.containsKey(m.id) ? tr('İndiriliyor, devam edebilirsin') : '${m.size}, ${tr('internetsiz')}',
+            selected: s.voiceSource == VoiceSource.model && s.ttsModelId == m.id,
+            onTap: voices.installed(m) ? () => _playModel(m) : () => voices.download(m),
+            trailing: Icon(voices.installed(m) ? Icons.play_arrow_rounded : Icons.download_rounded, color: c.accent, size: 24),
+          ),
+      ],
     ]);
+  }
+
+  Future<void> _playModel(VoiceModel m) async {
+    await _stop();
+    settings.update((x) {
+      x.voiceSource = VoiceSource.model;
+      x.ttsModelId = m.id;
+      x.ttsVoice = 0;
+    });
+    await speaker.preview(_welcome, 'tr', model: m).catchError((_) {});
   }
 }
 

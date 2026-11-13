@@ -415,3 +415,8 @@ The user wants people to hear books in their own voice or a loved one's, offline
   - Key the cache by voice, speed and sentence-text hash, not by page number, so a font change does not throw it away.
   - Run in the background at low priority with 1–2 threads, and slow down on `PowerManager` thermal status or low battery.
   - When listening catches up, offer to wait or to carry on in the system voice.
+
+### 6.2 What shipped in 0.5.0 (2026-11-13)
+
+- Antalia-2 Mini int8 and Ahenk Cep int8 run in Dart (`natural.dart`), checked against the release samples: Antalia fp32 gives the same text, the same lengths and 67 to 72 dB SNR against the PyTorch WAVs. Whisper turbo reads the int8 outputs back with 0 CER; Ahenk at 8 steps added a hallucinated sentence on a long text, so it runs 16. RTF on an M1 with 2 threads: Antalia 0.06 to 0.15, Ahenk 16 steps 0.08.
+- The converter in Dart (`voiceclone.dart`): embeddings match Python onnxruntime exactly; the converter samples noise inside (RandomNormalLike, tau 0.3), so two runs differ as much as Dart and Python do. On a 34 s Supertonic sample with a 20 s Turkish reference, resemblyzer similarity to the reference rose from 0.714 to 0.871; RTF 0.16 on an M1.

@@ -267,6 +267,13 @@ class Settings extends ChangeNotifier {
 
   /// E-ink: flash the screen black and white every this many page turns to clear ghosting; 0 never.
   int einkRefresh = 5;
+  /// Voices the reader recorded ({id, name, se}), the one listened in now, and the voice used before it
+  /// ("model id|voice" or "system"), which the catch-up sheet offers first.
+  List<Map<String, dynamic>> clones = [];
+  String? cloneId, voiceBeforeClone;
+
+  /// Per model voice ("model id|sid"): the converter's embedding of it, made once.
+  Map<String, List<double>> voiceEmbeddings = {};
   final customLight = CustomPaper(const Color(0xFFE9EEF0));
   final customDark = CustomPaper(const Color(0xFF12202A))
     ..paper = const Color(0xFF12202A)
@@ -384,6 +391,13 @@ class Settings extends ChangeNotifier {
       backupDays = j['backupDays'] as int? ?? 0;
       backupFolder = j['backupFolder'] as String?;
       lastBackup = j['lastBackup'] as int? ?? 0;
+      clones = [for (final c in j['clones'] as List? ?? const []) c as Map<String, dynamic>];
+      cloneId = j['cloneId'] as String?;
+      voiceBeforeClone = j['voiceBeforeClone'] as String?;
+      voiceEmbeddings = {
+        for (final e in (j['voiceEmbeddings'] as Map<String, dynamic>? ?? const {}).entries)
+          e.key: [for (final v in e.value as List) (v as num).toDouble()],
+      };
       if (j['zones'] != null) zones = TapLayout.fromJson(j['zones'] as Map<String, dynamic>);
     } catch (_) {
       // A settings file from another version is not worth stopping the app for.
@@ -456,6 +470,10 @@ class Settings extends ChangeNotifier {
       'backupDays': backupDays,
       'backupFolder': backupFolder,
       'lastBackup': lastBackup,
+      'clones': clones,
+      'cloneId': cloneId,
+      'voiceBeforeClone': voiceBeforeClone,
+      'voiceEmbeddings': voiceEmbeddings,
     };
 
   /// Changes the custom background and measures the result before anything draws with it.
