@@ -207,3 +207,21 @@ that names the old one.
 - Found on the emulator: Android gave headset buttons to no session (the system voice plays from the TTS engine's process), which is why unplugging or pressing headphones started music. ReadingService now loops a silent AudioTrack while speaking, so the app's session gets the buttons. Also fixed: the brightness badge filled the edge strip; books without a cover show their title on the shelf widget instead of the app icon.
 - Checked: analyze clean, 38 tests pass (2 skipped), including the Wi-Fi server (secret path, upload, paths out of the folder refused). On the emulator, offline: highlight colours, notes, contents list and Markdown export; quote picture and share sheet; Calibre folder (title, author, series, volume, cover, one format of two); watched folder picking up a new file on resume; rating saved; time left, cover-coloured bar, edge brightness; media session, ducking focus request, pause from the card, headset pause and play, pause on AUDIO_BECOMING_NOISY; both widgets, cover tap, play from a killed process, pause and stop; night by the clock; multi-select; stats. Not tried end to end: Wi-Fi transfer (the emulator's network stays off).
 - Released 2026-11-12 at the user's request (they asked for the APK first, then the repo, release, site, README, features, notes and screenshots). New screenshots: library, highlights, widget (site and README). The site's feature and changelog texts were shortened so every page still fits a phone.
+
+## 2026-11-13 D24 Automatic voicing (not released yet)
+
+- Asked for by the user on 2026-11-13. Design in `research/tts.md` §6.1. The user's correction for when listening catches up: a secondary "Turn sound off" button; a dropdown of system voice and installed models only; a ‹ label › stepper naming voices Woman/Man N; a small preview button; a primary Apply. The voice chosen last is the default.
+- `lib/voicing.dart`:
+  - Sentences are made at 1x and kept as AAC in `cache/voiced`, named by FNV-1a of model, voice, language and text. Encoding uses `encodeAac` in MainActivity, through MediaCodec and MediaMuxer.
+  - The cache limit is 500 MB, and the oldest files go first.
+  - Speed is applied as the file plays, so changing it keeps the files.
+  - Pace (make and hear seconds per character) is learned per model in `settings.voicePace`.
+  - Buffer = max(chosen pages, pages to chapter end × (1 − l/g)), capped at 60.
+  - Background voicing rests 0.3× the work time after each sentence, or 2× when `thermal` ≥ moderate.
+- Checked on the offline emulator with Supertonic pushed in by adb:
+  - 5 pages prepared, then read from the kept files;
+  - the catch-up sheet: Kokoro disabled, switching to a system voice and applying;
+  - the range sheet: words, estimates, progress;
+  - 1.5x without a stop.
+- Two bugs found on the emulator and fixed: speed baked into the key, which made any speed change look like a catch-up; and the system voice list was not filtered when the book's language was unknown, and it offered network voices.
+- Voice cloning spike: Supertonic, then OpenVoice v2's converter exported to int8 ONNX. Combined RTF is about 0.29 on 2 M1 threads, an extra 34 MB download, and speaker similarity rises from 0.57 to 0.82. Files are in the session scratchpad `voiceclone/` (export script `scripts/export_onnx.py`).
