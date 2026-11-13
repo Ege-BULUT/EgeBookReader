@@ -392,4 +392,8 @@ const _en = <String, String>{
   'Bu telefonda 1 dakikalık ses ~{} içinde hazırlanıyor.': 'On this phone a minute of speech is ready in ~{}.',
   'Saklanan ses': 'Kept speech',
   'Kapat': 'Close',
+  'Kitapta ara': 'Search the book',
+  'Aranıyor': 'Searching',
+  'sayfa': 'page',
+  'sonuç': 'results',
 };

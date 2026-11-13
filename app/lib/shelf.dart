@@ -100,7 +100,18 @@ String sortKey(String s) => String.fromCharCodes(turkishLower(s).split('').map((
     }));
 
 /// Text folded for search: Turkish lower case with accents dropped, so "sef" finds "Şef" and "istanbul" finds "İstanbul".
-String foldForSearch(String s) => turkishLower(s)
-    .split('')
-    .map((ch) => _plain[ch] ?? const {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u', 'â': 'a', 'î': 'i', 'û': 'u'}[ch] ?? ch)
-    .join();
+String foldForSearch(String s) => foldWithMap(s).$1;
+
+/// [foldForSearch], plus for each folded character the index in [s] it came from, to find a hit's place in the original.
+(String, List<int>) foldWithMap(String s) {
+  final out = StringBuffer(), from = <int>[];
+  for (var i = 0; i < s.length; i++) {
+    final ch = turkishLower(s[i]);
+    // ponytail: one UTF-16 unit at a time; a surrogate pair folds as two units, which only matters for emoji.
+    for (final f in ch.split('')) {
+      out.write(_plain[f] ?? const {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u', 'â': 'a', 'î': 'i', 'û': 'u'}[f] ?? f);
+      from.add(i);
+    }
+  }
+  return (out.toString(), from);
+}

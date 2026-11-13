@@ -17,6 +17,7 @@ import 'package:egebookreader/stats.dart';
 import 'package:egebookreader/meta.dart';
 import 'package:egebookreader/settings.dart';
 import 'package:egebookreader/shelf.dart';
+import 'package:egebookreader/reader.dart' show findInSentences;
 import 'package:egebookreader/tts.dart';
 import 'package:egebookreader/viewer.dart';
 import 'package:egebookreader/voicing.dart';
@@ -615,5 +616,18 @@ void main() {
           if (!en.contains("'${m[1]}':") && !en.contains('"${m[1]!.replaceAll(r"\'", "'")}":')) m[1]!,
     };
     expect(missing, isEmpty);
+  });
+
+  test('search inside a book: folded, every hit, boxes of the matched words only', () {
+    final words = [SpokenWord(0, 5, [const Rect.fromLTWH(0, 0, 40, 10)]), SpokenWord(6, 14, [const Rect.fromLTWH(45, 0, 60, 10)]),
+        SpokenWord(15, 19, [const Rect.fromLTWH(110, 0, 50, 10)])];
+    final s = SpokenSentence('Şefİn İSTANBUL şefi', 'tr', 3, [const Rect.fromLTWH(0, 0, 160, 10)], words);
+    final hits = findInSentences('sef', 3, [s]);
+    expect(hits.map((h) => h.match), ['Şef', 'şef']);
+    expect(hits.first.page, 3);
+    expect(hits.first.boxes, [const Rect.fromLTWH(0, 0, 40, 10)]);
+    expect(findInSentences('istanbul', 0, [s]).single.boxes, [const Rect.fromLTWH(45, 0, 60, 10)]);
+    expect(findInSentences('  ', 0, [s]), isEmpty);
+    expect(foldWithMap('İı').$1, 'ii');
   });
 }

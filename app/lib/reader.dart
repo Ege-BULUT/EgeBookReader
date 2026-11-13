@@ -20,6 +20,7 @@ import 'panels.dart';
 import 'zones.dart';
 import 'settings.dart';
 import 'settings_sheet.dart';
+import 'shelf.dart' show foldWithMap;
 import 'sources.dart';
 import 'stats.dart';
 import 'tts.dart';
@@ -1168,7 +1169,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       return img == null ? const SizedBox.expand() : RawImage(image: img, fit: BoxFit.fill);
     }
 
-    Widget withBadges(int i) => Stack(fit: StackFit.expand, children: [one(i), _marksLayer(i), _spokenHighlight(i), ..._badges(i)]);
+    Widget withBadges(int i) => Stack(fit: StackFit.expand, children: [one(i), _marksLayer(i), _hitLayer(i), _spokenHighlight(i), ..._badges(i)]);
     return _spreadActive
         ? Row(textDirection: widget.book.rtl ? TextDirection.rtl : TextDirection.ltr, children: [Expanded(child: withBadges(_page)), Expanded(child: withBadges(_page + 1))])
         : withBadges(_page);
@@ -1308,6 +1309,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                     else
                       Column(children: [for (final t in tiles) Expanded(flex: t.height, child: RawImage(image: t, fit: BoxFit.fill, width: page.width))]),
                     _marksLayer(i),
+                    _hitLayer(i),
                     _spokenHighlight(i),
                   ]),
           );
@@ -1535,6 +1537,41 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     for (final i in _images.keys.toList()) {
       _findMarks(i);
     }
+  }
+
+  // ---- search inside the book -------------------------------------------------------------------------
+
+  /// The hit jumped to last: its page and its boxes there.
+  (int, List<Rect>)? _hit;
+  String _lastQuery = '';
+
+  Widget _hitLayer(int i) {
+    final hit = _hit;
+    if (hit == null || hit.$1 != i) return const SizedBox.shrink();
+    return IgnorePointer(child: CustomPaint(size: Size.infinite, painter: _HitPainter(hit.$2, settings.palette.accent)));
+  }
+
+  void _openSearch() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: settings.palette.paper,
+      builder: (sheet) => FractionallySizedBox(
+        heightFactor: 0.85,
+        child: _SearchSheet(
+          count: _count,
+          query: _lastQuery,
+          sentencesOn: _sentencesOf,
+          onQuery: (q) => _lastQuery = q,
+          onPick: (hit) {
+            Navigator.pop(sheet);
+            if (_menu) _toggleMenu();
+            setState(() => _hit = (hit.page, hit.boxes));
+            _seek(hit.page);
+          },
+        ),
+      ),
+    );
   }
 
   Widget _marksLayer(int i) {
@@ -1985,6 +2022,11 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                     onPressed: _togglePanels,
                   ),
                 IconButton(
+                  tooltip: tr('Kitapta ara'),
+                  icon: Icon(Icons.search, color: fg, size: 22),
+                  onPressed: _openSearch,
+                ),
+                IconButton(
                   tooltip: tr('İçindekiler'),
                   icon: Icon(Icons.format_list_bulleted_rounded, color: fg, size: 22),
                   onPressed: _openContents,
@@ -2313,4 +2355,173 @@ class _BookBedPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_BookBedPainter o) => o.book != book || o.spread != spread || o.read != read || o.edge != edge;
+}
+
+/// A place in the book where the searched text is: the page, the boxes it covers there, and a line around it.
+class SearchHit {
+  SearchHit(this.page, this.boxes, this.before, this.match, this.after);
+  final int page;
+  final List<Rect> boxes;
+  final String before, match, after;
+}
+
+/// Every place in [sentences] (of page [page]) where [query] is, folded the way the library search folds:
+/// case and accents do not matter, so "sef" finds "Şef".
+List<SearchHit> findInSentences(String query, int page, List<SpokenSentence> sentences) {
+  final q = foldWithMap(query.trim()).$1;
+  if (q.isEmpty) return const [];
+  final hits = <SearchHit>[];
+  for (final s in sentences) {
+    final (folded, from) = foldWithMap(s.text);
+    for (var at = folded.indexOf(q); at >= 0; at = folded.indexOf(q, at + 1)) {
+      final start = from[at], end = from[at + q.length - 1] + 1;
+      final boxes = [
+        for (final w in s.words)
+          if (w.start < end && w.end > start) ...w.boxes,
+      ];
+      hits.add(SearchHit(
+        page,
+        boxes.isEmpty ? s.boxes : boxes,
+        s.text.substring(max(0, start - 40), start).trimLeft(),
+        s.text.substring(start, end),
+        s.text.substring(end, min(s.text.length, end + 60)).trimRight(),
+      ));
+    }
+  }
+  return hits;
+}
+
+class _SearchSheet extends StatefulWidget {
+  const _SearchSheet({required this.count, required this.query, required this.sentencesOn, required this.onQuery, required this.onPick});
+  final int count;
+  final String query;
+  final Future<List<SpokenSentence>> Function(int) sentencesOn;
+  final ValueChanged<String> onQuery;
+  final ValueChanged<SearchHit> onPick;
+
+  @override
+  State<_SearchSheet> createState() => _SearchSheetState();
+}
+
+class _SearchSheetState extends State<_SearchSheet> {
+  static const most = 500;
+  late final _field = TextEditingController(text: widget.query);
+  final hits = <SearchHit>[];
+  int _run = 0, scanned = 0;
+  bool searching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.query.isNotEmpty) _search(widget.query);
+  }
+
+  @override
+  void dispose() {
+    _run++;
+    _field.dispose();
+    super.dispose();
+  }
+
+  /// Page by page, so the first hits show while the rest of the book is still being read.
+  Future<void> _search(String query) async {
+    final run = ++_run;
+    widget.onQuery(query);
+    setState(() {
+      hits.clear();
+      scanned = 0;
+      searching = query.trim().isNotEmpty;
+    });
+    if (!searching) return;
+    for (var i = 0; i < widget.count && hits.length < most; i++) {
+      final found = findInSentences(query, i, await widget.sentencesOn(i));
+      if (run != _run || !mounted) return;
+      setState(() {
+        hits.addAll(found.take(most - hits.length));
+        scanned = i + 1;
+      });
+    }
+    if (run == _run && mounted) setState(() => searching = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = settings.palette;
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+          child: TextField(
+            controller: _field,
+            autofocus: widget.query.isEmpty,
+            textInputAction: TextInputAction.search,
+            onSubmitted: _search,
+            style: TextStyle(color: c.ink, fontSize: 16),
+            decoration: InputDecoration(
+              hintText: tr('Kitapta ara'),
+              prefixIcon: Icon(Icons.search, color: c.muted),
+              suffixIcon: IconButton(icon: Icon(Icons.arrow_forward, color: c.accent), onPressed: () => _search(_field.text)),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
+          child: Text(
+            searching
+                ? '${tr('Aranıyor')} · ${tr('sayfa')} $scanned / ${widget.count} · ${hits.length} ${tr('sonuç')}'
+                : (_field.text.trim().isEmpty ? '' : '${hits.length}${hits.length >= most ? '+' : ''} ${tr('sonuç')}'),
+            style: TextStyle(color: c.muted, fontSize: 13),
+          ),
+        ),
+        if (searching) LinearProgressIndicator(value: widget.count == 0 ? null : scanned / widget.count, minHeight: 2, color: c.accent, backgroundColor: c.line),
+        Expanded(
+          child: ListView.builder(
+            itemCount: hits.length,
+            itemBuilder: (_, i) {
+              final h = hits[i];
+              return InkWell(
+                onTap: () => widget.onPick(h),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Expanded(
+                      child: Text.rich(
+                        TextSpan(style: TextStyle(color: c.muted, fontSize: 14, height: 1.35), children: [
+                          TextSpan(text: h.before.isEmpty ? '' : '…${h.before}'),
+                          TextSpan(text: h.match, style: TextStyle(color: c.ink, fontWeight: FontWeight.w600, backgroundColor: c.accent.withValues(alpha: 0.18))),
+                          TextSpan(text: '${h.after}…'),
+                        ]),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text('${h.page + 1}', style: TextStyle(color: c.muted, fontSize: 13)),
+                  ]),
+                ),
+              );
+            },
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _HitPainter extends CustomPainter {
+  _HitPainter(this.boxes, this.color);
+  final List<Rect> boxes;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()..color = color.withValues(alpha: 0.3);
+    for (final b in boxes) {
+      canvas.drawRRect(RRect.fromRectAndRadius(b.inflate(1.5), const Radius.circular(3)), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HitPainter o) => o.boxes != boxes || o.color != color;
 }
