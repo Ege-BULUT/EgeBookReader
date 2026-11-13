@@ -18,6 +18,10 @@ class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var pendingSave: Pair<String, MethodChannel.Result>? = null
     private var pendingFolder: MethodChannel.Result? = null
+    private var pendingRecording: Pair<String, MethodChannel.Result>? = null
+    private var recorder: android.media.AudioRecord? = null
+    private var recorderThread: Thread? = null
+    @Volatile private var keepRecording = false
 
     /** Off the main thread, then the answer back on it. */
     private fun inBackground(result: MethodChannel.Result, work: () -> Any?) = Thread {
@@ -150,6 +154,19 @@ class MainActivity : FlutterActivity() {
                     "thermal" -> result.success(
                         if (Build.VERSION.SDK_INT >= 29) (getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus else 0,
                     )
+                    "startRecording" -> {
+                        val path = call.arguments as String
+                        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            result.success(startRecording(path))
+                        } else {
+                            pendingRecording = path to result
+                            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), RECORD_REQUEST)
+                        }
+                    }
+                    "stopRecording" -> {
+                        stopRecording()
+                        result.success(null)
+                    }
                     "speechService" -> {
                         updateSpeechService(call.arguments as Map<*, *>)
                         result.success(null)
@@ -158,6 +175,52 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != RECORD_REQUEST) return
+        val (path, result) = pendingRecording ?: return
+        pendingRecording = null
+        result.success(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && startRecording(path))
+    }
+
+    /** The microphone as raw 16-bit mono PCM at 22.05 kHz into [path], until stopRecording. */
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun startRecording(path: String): Boolean {
+        stopRecording()
+        val rate = 22050
+        val mono = android.media.AudioFormat.CHANNEL_IN_MONO
+        val pcm16 = android.media.AudioFormat.ENCODING_PCM_16BIT
+        val size = maxOf(android.media.AudioRecord.getMinBufferSize(rate, mono, pcm16), rate)
+        val r = android.media.AudioRecord(android.media.MediaRecorder.AudioSource.MIC, rate, mono, pcm16, size)
+        if (r.state != android.media.AudioRecord.STATE_INITIALIZED) {
+            r.release()
+            return false
+        }
+        recorder = r
+        keepRecording = true
+        r.startRecording()
+        recorderThread = Thread {
+            java.io.File(path).outputStream().use { out ->
+                val buffer = ByteArray(4096) // about 0.1 s, so stopping never waits long
+                while (keepRecording) {
+                    val n = r.read(buffer, 0, buffer.size)
+                    if (n > 0) out.write(buffer, 0, n)
+                }
+            }
+        }.apply { start() }
+        return true
+    }
+
+    private fun stopRecording() {
+        val r = recorder ?: return
+        recorder = null
+        keepRecording = false
+        recorderThread?.join()
+        recorderThread = null
+        r.stop()
+        r.release()
     }
 
     /** A 16-bit mono WAV from the voice, packed as AAC in an .m4a: about a tenth of the space. */
@@ -303,6 +366,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val SAVE_DOCUMENT = 42
         private const val PICK_FOLDER = 43
+        private const val RECORD_REQUEST = 44
         private var speechChannel: MethodChannel? = null
 
         /** A button on the reading notification or the shelf was pressed; false when the app is not running. */

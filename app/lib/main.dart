@@ -28,6 +28,7 @@ import 'shelf.dart';
 import 'sources.dart';
 import 'stats.dart';
 import 'tts.dart';
+import 'voiceclone.dart';
 import 'voicing.dart';
 
 final settings = Settings();
@@ -40,6 +41,7 @@ Future<void> main() async {
   await colorizer.load();
   await voices.load();
   await voicing.load();
+  await cloner.load();
   speaker.ready = voicing.fileFor;
   speaker.mustWait = (s) => settings.autoVoice && voicing.running && s.page >= voicing.runFrom;
   await settings.load();
