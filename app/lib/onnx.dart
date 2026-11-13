@@ -17,11 +17,11 @@ final class _ApiBase extends Struct {
 
 typedef _P = Pointer<Void>;
 
-/// A named input tensor.
+/// A named input tensor: a Float32List, or an Int64List for token ids.
 class OnnxInput {
   OnnxInput(this.name, this.data, this.shape);
   final String name;
-  final Float32List data;
+  final TypedData data;
   final List<int> shape;
 }
 
@@ -33,8 +33,8 @@ class _Job {
   final SendPort reply;
 }
 
-void _main((String, SendPort) start) {
-  final (path, ready) = start;
+void _main((String, int, SendPort) start) {
+  final (path, threads, ready) = start;
   final lib = DynamicLibrary.open('libonnxruntime.so');
   final base = lib.lookupFunction<Pointer<_ApiBase> Function(), Pointer<_ApiBase> Function()>('OrtGetApiBase')();
   final api = base.ref.getApi.asFunction<Pointer<Pointer<Void>> Function(int)>()(20);
@@ -54,7 +54,7 @@ void _main((String, SendPort) start) {
   final env = out.value;
   check(fn<_P Function(Pointer<_P>)>(_createOptions).asFunction<_P Function(Pointer<_P>)>()(out));
   final options = out.value;
-  check(fn<_P Function(_P, Int32)>(_setThreads).asFunction<_P Function(_P, int)>()(options, 3));
+  check(fn<_P Function(_P, Int32)>(_setThreads).asFunction<_P Function(_P, int)>()(options, threads));
   check(fn<_P Function(_P, Pointer<Utf8>, _P, Pointer<_P>)>(_createSession).asFunction<_P Function(_P, Pointer<Utf8>, _P, Pointer<_P>)>()(env, path.toNativeUtf8(), options, out));
   final session = out.value;
   check(fn<_P Function(Int32, Int32, Pointer<_P>)>(_cpuMemory).asFunction<_P Function(int, int, Pointer<_P>)>()(1, 0, out));
@@ -76,21 +76,23 @@ void _main((String, SendPort) start) {
     final tensors = calloc<_P>(n);
     final outName = calloc<Pointer<Utf8>>()..value = job.output.toNativeUtf8();
     final result = calloc<_P>(), pointer = calloc<_P>();
-    final buffers = <Pointer<Float>>[];
+    final buffers = <Pointer<Uint8>>[];
     final shapes = <Pointer<Int64>>[];
     try {
       for (var i = 0; i < n; i++) {
         final input = job.inputs[i];
         names[i] = input.name.toNativeUtf8();
-        final data = calloc<Float>(input.data.length);
+        final bytes = input.data.buffer.asUint8List(input.data.offsetInBytes, input.data.lengthInBytes);
+        final data = calloc<Uint8>(bytes.length);
         buffers.add(data);
-        data.asTypedList(input.data.length).setAll(0, input.data);
+        data.asTypedList(bytes.length).setAll(0, bytes);
         final shape = calloc<Int64>(input.shape.length);
         shapes.add(shape);
         for (var d = 0; d < input.shape.length; d++) {
           shape[d] = input.shape[d];
         }
-        check(createTensor(memory, data.cast(), input.data.length * 4, shape, input.shape.length, 1, tensors + i));
+        // ONNX element types: 1 is float, 7 is int64.
+        check(createTensor(memory, data.cast(), bytes.length, shape, input.shape.length, input.data is Int64List ? 7 : 1, tensors + i));
       }
       check(run(session, nullptr, names, tensors, n, outName, 1, result));
       check(tensorData(result.value, pointer));
@@ -119,9 +121,9 @@ class OnnxModel {
   final Isolate _isolate;
   final SendPort _jobs;
 
-  static Future<OnnxModel> open(String path) async {
+  static Future<OnnxModel> open(String path, {int threads = 3}) async {
     final ready = ReceivePort();
-    final isolate = await Isolate.spawn(_main, (path, ready.sendPort));
+    final isolate = await Isolate.spawn(_main, (path, threads, ready.sendPort));
     return OnnxModel._(isolate, await ready.first as SendPort);
   }
 

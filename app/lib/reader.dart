@@ -23,6 +23,7 @@ import 'settings_sheet.dart';
 import 'sources.dart';
 import 'stats.dart';
 import 'tts.dart';
+import 'upscale.dart';
 import 'viewer.dart';
 import 'voicing.dart';
 
@@ -115,6 +116,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     library.addListener(_libraryChanged);
     readerCalls = _onVolume;
     colorizer.onDone = _colorizedOne;
+    upscaler.onDone = _colorizedOne;
     colorizer.addListener(_colorizerChanged);
     speaker.addListener(_speakerChanged);
     speaker.onFinished = _speechReachedPageEnd;
@@ -359,6 +361,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     _volume.invokeMethod('speechService', {'active': false});
     colorizer.onDone = null;
     colorizer.clearQueue();
+    upscaler.onDone = null;
+    upscaler.clearQueue();
     if (readerCalls == _onVolume) readerCalls = null;
     _volume.invokeMethod('setEnabled', false);
     _volume.invokeMethod('setReading', false);
@@ -665,8 +669,14 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       final images = await _source!.imagesOn(index, page);
       _pageImages[index] = images;
       for (final image in images) {
-        final file = colorizer.fileFor(image.id);
-        if (!file.existsSync() || !colorizer.showsColor(image.id)) continue;
+        final colored = colorizer.fileFor(image.id);
+        final file = colored.existsSync() && colorizer.showsColor(image.id)
+            ? colored
+            : (s.aiUpscale && upscaler.hasResult(image.id) ? upscaler.fileFor(image.id) : null);
+        if (file == null) {
+          if (s.aiUpscale && sharper == 1) upscaler.enqueue(image, (image.rect.width * full).round());
+          continue;
+        }
         // Same rectangle as the original, so colouring a picture can never move anything on the page.
         final codec = await ui.instantiateImageCodec(await file.readAsBytes(), targetWidth: (image.rect.width * dpr).ceil());
         final frame = await codec.getNextFrame();

@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'backup.dart';
 import 'incoming.dart' show importFolder;
 import 'colorize.dart';
+import 'upscale.dart';
 import 'fonts.dart';
 import 'l10n.dart';
 import 'main.dart' show Book, library, settings, themeFor;
@@ -542,6 +543,11 @@ extension on _SettingsSheetState {
       _SettledSlider(label: 'Kontrast', value: s.imageContrast, min: 0.6, max: 1.6, percent: true, onEnd: (v) => s.update((x) => x.imageContrast = v)),
       _SettledSlider(label: 'Keskinlik', value: s.imageSharpen, min: 0, max: 1, percent: true, onEnd: (v) => s.update((x) => x.imageSharpen = v)),
       Toggle('Yüksek kaliteli büyütme', s.imageUpscale, (v) => s.update((x) => x.imageUpscale = v)),
+      Toggle('Düşük çözünürlüklü görselleri yapay zekâyla büyüt', s.aiUpscale, (v) => s.update((x) => x.aiUpscale = v)),
+      if (s.aiUpscale) ...[
+        const SizedBox(height: 10),
+        const ColorModelCard(model: upscaleModel, choosable: false),
+      ],
       Heading('Renklendirme'),
       for (final m in colorModels) Padding(padding: const EdgeInsets.only(bottom: 10), child: ColorModelCard(model: m)),
       if (colorizer.error != null) Text(colorizer.error!, style: TextStyle(color: c.accent, fontSize: 13)),
@@ -569,8 +575,11 @@ extension on _SettingsSheetState {
 
 /// Download, choose or delete one colorizer.
 class ColorModelCard extends StatelessWidget {
-  const ColorModelCard({super.key, required this.model});
+  const ColorModelCard({super.key, required this.model, this.choosable = true});
   final ColorModel model;
+
+  /// False for a model that is not one of the colorizers to choose between.
+  final bool choosable;
 
   @override
   Widget build(BuildContext context) {
@@ -578,7 +587,7 @@ class ColorModelCard extends StatelessWidget {
     final s = settings;
     final c = s.palette;
     final installed = colorizer.isInstalled(m);
-    final selected = colorizer.model?.id == m.id;
+    final selected = choosable && colorizer.model?.id == m.id;
     final busy = colorizer.downloads.containsKey(m.id);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
@@ -608,12 +617,14 @@ class ColorModelCard extends StatelessWidget {
           )
         else
           Row(children: [
-            TextButton(
-              onPressed: () => s.update((x) => x.colorModelId = m.id),
-              style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero),
-              child: Text(tr(selected ? 'Seçili' : 'Seç')),
-            ),
-            const SizedBox(width: 16),
+            if (choosable) ...[
+              TextButton(
+                onPressed: () => s.update((x) => x.colorModelId = m.id),
+                style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero),
+                child: Text(tr(selected ? 'Seçili' : 'Seç')),
+              ),
+              const SizedBox(width: 16),
+            ],
             TextButton(
               onPressed: () => colorizer.removeModel(m),
               style: TextButton.styleFrom(foregroundColor: c.muted, padding: EdgeInsets.zero),

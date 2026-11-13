@@ -395,4 +395,7 @@ const _en = <String, String>{
   'Sayfa düzeni': 'Page layout',
   'Tek sayfa': 'Single page',
   'Çift sayfa': 'Two pages',
+  'Düşük çözünürlüklü görselleri yapay zekâyla büyüt': 'Upscale low-resolution pictures with AI',
+  'Düşük çözünürlüklü çizgi roman ve manga sayfalarını yapay zekâyla büyütür.': 'Upscales low-resolution comic and manga pages with AI.',
+  '2,5 MB': '2.5 MB',
 };

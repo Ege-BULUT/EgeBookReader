@@ -40,6 +40,7 @@ class PageStyle {
     this.imageContrast = 1,
     this.imageSharpen = 0,
     this.imageUpscale = false,
+    this.aiUpscale = false,
   });
 
   final Color paper, ink;
@@ -53,6 +54,9 @@ class PageStyle {
   final String? backgroundKey;
   final double imageSaturation, imageContrast, imageSharpen;
   final bool imageUpscale;
+
+  /// Small pictures are drawn from their AI-upscaled copy once it is ready.
+  final bool aiUpscale;
 
   bool get imageFiltered => imageSaturation != 1 || imageContrast != 1 || imageSharpen > 0 || imageUpscale;
 
@@ -80,10 +84,11 @@ class PageStyle {
       other.imageSaturation == imageSaturation &&
       other.imageContrast == imageContrast &&
       other.imageSharpen == imageSharpen &&
-      other.imageUpscale == imageUpscale;
+      other.imageUpscale == imageUpscale &&
+      other.aiUpscale == aiUpscale;
 
   @override
-  int get hashCode => Object.hash(paper, ink, fontSize, lineHeight, fontFamily, bold, italic, grain, actualBook, margin, justify, backgroundKey, imageSaturation, imageContrast, imageSharpen, imageUpscale);
+  int get hashCode => Object.hash(paper, ink, fontSize, lineHeight, fontFamily, bold, italic, grain, actualBook, margin, justify, backgroundKey, imageSaturation, imageContrast, imageSharpen, imageUpscale, aiUpscale);
 }
 
 /// One sentence to read aloud, with where it sits on its page when that is known.

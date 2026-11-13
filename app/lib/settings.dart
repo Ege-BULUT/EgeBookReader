@@ -232,6 +232,7 @@ class Settings extends ChangeNotifier {
   String seenVersion = appVersion;
   double imageSaturation = 1, imageContrast = 1, imageSharpen = 0;
   bool imageUpscale = false;
+  bool aiUpscale = false;
   ColorizeMode colorizeMode = ColorizeMode.onDemand;
   int autoColorizePages = 3;
   String colorModelId = 'manga';
@@ -298,6 +299,7 @@ class Settings extends ChangeNotifier {
         imageContrast: imageContrast,
         imageSharpen: imageSharpen,
         imageUpscale: imageUpscale,
+        aiUpscale: aiUpscale,
       );
 
   late final File _file;
@@ -347,6 +349,7 @@ class Settings extends ChangeNotifier {
       imageContrast = (j['imageContrast'] as num?)?.toDouble() ?? 1;
       imageSharpen = (j['imageSharpen'] as num?)?.toDouble() ?? 0;
       imageUpscale = j['imageUpscale'] as bool? ?? false;
+      aiUpscale = j['aiUpscale'] as bool? ?? false;
       colorizeMode = ColorizeMode.values.byName(j['colorizeMode'] as String? ?? 'onDemand');
       autoColorizePages = j['autoColorizePages'] as int? ?? 3;
       colorModelId = j['colorModelId'] as String? ?? 'manga';
@@ -416,6 +419,7 @@ class Settings extends ChangeNotifier {
       'imageContrast': imageContrast,
       'imageSharpen': imageSharpen,
       'imageUpscale': imageUpscale,
+      'aiUpscale': aiUpscale,
       'colorizeMode': colorizeMode.name,
       'autoColorizePages': autoColorizePages,
       'colorModelId': colorModelId,

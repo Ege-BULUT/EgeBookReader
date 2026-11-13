@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import 'colorize.dart';
+import 'upscale.dart';
 import 'fonts.dart';
 import 'gallery.dart';
 import 'incoming.dart';
@@ -38,6 +39,7 @@ Future<void> main() async {
   await pdfrxFlutterInitialize();
   await fonts.load();
   await colorizer.load();
+  await upscaler.load();
   await voices.load();
   await voicing.load();
   speaker.ready = voicing.fileFor;
