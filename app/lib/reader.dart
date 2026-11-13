@@ -749,7 +749,20 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     return dir > 0 ? _page + _step < _count : _page > 0;
   }
 
+  int _turns = 0;
+  Color? _flash;
+
+  /// E-ink: black, then white, then the page again, which makes the panel redraw every pixel and drop ghosting.
+  Future<void> _fullRefresh() async {
+    for (final colour in [Colors.black, Colors.white, null]) {
+      if (!mounted) return;
+      setState(() => _flash = colour);
+      if (colour != null) await Future<void>.delayed(const Duration(milliseconds: 90));
+    }
+  }
+
   void _onTurned(int dir) {
+    if (settings.isEink && settings.einkRefresh > 0 && ++_turns % settings.einkRefresh == 0) _fullRefresh();
     _learnPace();
     _active = DateTime.now();
     stats.addPage();
@@ -1011,6 +1024,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                 ]),
               ),
               _coverLayer(c, screen),
+              if (_flash != null) Positioned.fill(child: ColoredBox(color: _flash!)),
             ]);
           }),
         ),

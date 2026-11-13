@@ -630,4 +630,10 @@ void main() {
     expect(findInSentences('  ', 0, [s]), isEmpty);
     expect(foldWithMap('İı').$1, 'ii');
   });
+
+  test('e-ink readers are recognised by their maker', () {
+    expect(isEinkMaker('ONYX BOOX NoteAir3'), isTrue);
+    expect(isEinkMaker('Hisense Hisense A9'), isTrue);
+    expect(isEinkMaker('samsung samsung SM-S918B'), isFalse);
+  });
 }

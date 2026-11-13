@@ -147,6 +147,7 @@ class MainActivity : FlutterActivity() {
                         val args = call.arguments as Map<*, *>
                         inBackground(result) { encodeAac(args["from"] as String, args["to"] as String); null }
                     }
+                    "maker" -> result.success("${Build.MANUFACTURER} ${Build.BRAND} ${Build.MODEL}")
                     "thermal" -> result.success(
                         if (Build.VERSION.SDK_INT >= 29) (getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus else 0,
                     )

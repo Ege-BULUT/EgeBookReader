@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -256,6 +257,9 @@ class Settings extends ChangeNotifier {
 
   /// A phone voice picked by name ("name|locale"); null takes the language's default.
   String? systemVoice;
+
+  /// E-ink: flash the screen black and white every this many page turns to clear ghosting; 0 never.
+  int einkRefresh = 5;
   final customLight = CustomPaper(const Color(0xFFE9EEF0));
   final customDark = CustomPaper(const Color(0xFF12202A))
     ..paper = const Color(0xFF12202A)
@@ -290,8 +294,9 @@ class Settings extends ChangeNotifier {
         grain: isEink || theme == PaperTheme.custom ? 0 : (palette.grain + (actualBook ? 0.35 : 0)).clamp(0, 1),
         actualBook: bookFilters,
         backgroundKey: theme == PaperTheme.custom ? custom.key : null,
-        imageSaturation: imageSaturation,
-        imageContrast: imageContrast,
+        // Grey and crisper on e-ink, where colour only turns into muddy dithering.
+        imageSaturation: isEink ? 0 : imageSaturation,
+        imageContrast: isEink ? max(imageContrast, 1.25) : imageContrast,
         imageSharpen: imageSharpen,
         imageUpscale: imageUpscale,
       );
@@ -368,6 +373,7 @@ class Settings extends ChangeNotifier {
           e.key: [for (final v in e.value as List) (v as num).toDouble()],
       };
       systemVoice = j['systemVoice'] as String?;
+      einkRefresh = j['einkRefresh'] as int? ?? 5;
       if (j['zones'] != null) zones = TapLayout.fromJson(j['zones'] as Map<String, dynamic>);
     } catch (_) {
       // A settings file from another version is not worth stopping the app for.
@@ -433,6 +439,7 @@ class Settings extends ChangeNotifier {
       'autoVoicePages': autoVoicePages,
       'voicePace': voicePace,
       'systemVoice': systemVoice,
+      'einkRefresh': einkRefresh,
     }));
   }
 
@@ -443,3 +450,5 @@ class Settings extends ChangeNotifier {
     update((_) {});
   }
 }
+
+bool isEinkMaker(String maker) => RegExp(r'onyx|boox|pocketbook|kobo|bigme|meebook|likebook|boyue|remarkable|hisense a\d', caseSensitive: false).hasMatch(maker);

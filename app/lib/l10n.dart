@@ -396,4 +396,8 @@ const _en = <String, String>{
   'Aranıyor': 'Searching',
   'sayfa': 'page',
   'sonuç': 'results',
+  'Tam ekran yenileme (gölgeleri temizler)': 'Full-screen refresh (clears ghosting)',
+  'Her 3 sayfada': 'Every 3 pages',
+  'Her 5': 'Every 5',
+  'Her 10': 'Every 10',
 };

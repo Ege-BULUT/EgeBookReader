@@ -237,6 +237,16 @@ class _SettingsSheetState extends State<SettingsSheet> {
             ],
           ]),
         ),
+      if (s.isEink) ...[
+        const SizedBox(height: 14),
+        Text(tr('Tam ekran yenileme (gölgeleri temizler)'), style: TextStyle(color: c.ink, fontSize: 15)),
+        const SizedBox(height: 8),
+        Segmented<int>(
+          value: s.einkRefresh,
+          options: const {0: 'Kapalı', 3: 'Her 3 sayfada', 5: 'Her 5', 10: 'Her 10'},
+          onChanged: (v) => s.update((x) => x.einkRefresh = v),
+        ),
+      ],
       if (s.theme == PaperTheme.custom) ...[
         Heading('Özel arka plan'),
         _SubLabel('Renk'),

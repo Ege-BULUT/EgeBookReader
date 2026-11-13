@@ -43,6 +43,11 @@ Future<void> main() async {
   speaker.ready = voicing.fileFor;
   speaker.mustWait = (s) => settings.autoVoice && voicing.running && s.page >= voicing.runFrom;
   await settings.load();
+  // First start on an e-ink reader (Onyx Boox, PocketBook, Kobo, Bigme, Meebook, Hisense A-series): start in the E-ink theme.
+  if (!settings.onboarded) {
+    final maker = await device.invokeMethod<String>('maker').catchError((_) => null) ?? '';
+    if (isEinkMaker(maker)) settings.theme = PaperTheme.eink;
+  }
   FlutterError.onError = (d) {
     FlutterError.presentError(d);
     logError(d.exception, d.stack);
@@ -519,6 +524,8 @@ ThemeData themeFor(Palette c) {
     scaffoldBackgroundColor: c.paper,
     splashFactory: NoSplash.splashFactory,
     highlightColor: Colors.transparent,
+    // E-ink screens smear moving pictures: screens change at once there.
+    pageTransitionsTheme: settings.isEink ? const PageTransitionsTheme(builders: {TargetPlatform.android: _AtOnce()}) : null,
     bottomSheetTheme: BottomSheetThemeData(backgroundColor: c.paper, modalBarrierColor: Colors.black38),
     sliderTheme: SliderThemeData(
       trackHeight: 2,
@@ -1546,4 +1553,10 @@ class BookCover extends StatelessWidget {
         ),
     ]);
   }
+}
+
+class _AtOnce extends PageTransitionsBuilder {
+  const _AtOnce();
+  @override
+  Widget buildTransitions<T>(PageRoute<T> route, BuildContext context, Animation<double> a, Animation<double> b, Widget child) => child;
 }
