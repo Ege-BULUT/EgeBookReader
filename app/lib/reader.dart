@@ -24,6 +24,7 @@ import 'sources.dart';
 import 'stats.dart';
 import 'tts.dart';
 import 'viewer.dart';
+import 'voicing.dart';
 
 const _volume = MethodChannel('egebookreader/volume');
 
@@ -103,6 +104,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   DateTime _active = DateTime.now();
   bool _spokeOnOpen = false;
 
+  /// The first pages are being voiced before reading aloud starts; the sheet for a caught-up voice is open.
+  bool _preparing = false, _catchUpOpen = false;
+
   @override
   void initState() {
     super.initState();
@@ -158,20 +162,71 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     _syncVolume();
     _syncSpeechService();
     if (mounted) setState(() {});
+    if (speaker.caughtUp && _onScreen) _showCatchUp();
+  }
+
+  /// Play pressed: with automatic voicing, the first pages are voiced before the voice starts and the rest while it reads.
+  Future<void> _startReading() async {
+    final model = voices.selected;
+    if (settings.autoVoice && settings.voiceSource == VoiceSource.model && model != null && _count > 0) {
+      if (_menu) _toggleMenu();
+      final chapterEnd = _chapters.where((p) => p > _page).fold(_count, min);
+      final first = min(_count, _page + bufferPages(model, chapterEnd - _page));
+      setState(() => _preparing = true);
+      final ok = await voicing.start(_page, _count, _sentencesOf, hurryUntil: first);
+      if (!mounted) return;
+      setState(() => _preparing = false);
+      if (!ok) return;
+    }
+    _speakFromHere();
+  }
+
+  Future<void> _showCatchUp() async {
+    if (_catchUpOpen || !mounted) return;
+    _catchUpOpen = true;
+    final applied = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: settings.palette.paper,
+      builder: (_) => CatchUpSheet(sample: speaker.current),
+    );
+    _catchUpOpen = false;
+    if (!mounted) return;
+    if (applied == true) {
+      speaker.resume();
+    } else if (applied == false) {
+      speaker.stop();
+    }
+  }
+
+  void _openRangeVoicing() {
+    if (_menu) _toggleMenu();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: settings.palette.paper,
+      builder: (_) => RangeVoicingSheet(count: _count, page: _page, sentencesOn: _sentencesOf),
+    );
   }
 
   String? _serviceState;
 
   /// While a book is read aloud a foreground service keeps the app alive with the screen off.
   void _syncSpeechService() {
-    final state = speaker.active ? 'on-${speaker.paused}-$uiLanguage' : 'off';
+    final state = speaker.active ? 'on-${speaker.paused}-${speaker.caughtUp}-$uiLanguage' : 'off';
     if (state == _serviceState) return;
     _serviceState = state;
     _volume.invokeMethod('speechService', {
       'active': speaker.active,
       'title': widget.book.title,
       'paused': speaker.paused,
-      'labels': [tr('Duraklat'), tr('Devam et'), tr('Durdur'), tr('Sesli okuma')],
+      'labels': [
+        tr('Duraklat'),
+        tr('Devam et'),
+        tr('Durdur'),
+        tr('Sesli okuma'),
+        speaker.caughtUp ? tr('Hazır ses bitti. Seçmek için dokun.') : tr('Sesli okuma'),
+      ],
     });
   }
 
@@ -181,6 +236,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       if (_ready) _renderWindow(_generation);
+      if (speaker.caughtUp) _showCatchUp();
     } else if (_speechTurning) {
       // Animations stop when the screen does, and the voice is waiting for this page turn.
       _curl.currentState?.skipToEnd();
@@ -298,6 +354,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     speaker.removeListener(_speakerChanged);
     speaker.onFinished = null;
     speaker.stop();
+    voicing.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _volume.invokeMethod('speechService', {'active': false});
     colorizer.onDone = null;
@@ -452,7 +509,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       _remember();
       if (widget.speak && !_spokeOnOpen) {
         _spokeOnOpen = true;
-        _speakFromHere();
+        _startReading();
       }
       if (_scrolling) _jumpScroll();
       _maybeSwing();
@@ -941,6 +998,13 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                   if (_error != null) _errorView(c),
                   _chrome(c),
                   _player(c),
+                  if (_preparing)
+                    Positioned(
+                      left: 14,
+                      right: 14,
+                      bottom: max(MediaQuery.paddingOf(context).bottom, 14),
+                      child: VoicingProgress(onCancel: voicing.cancel),
+                    ),
                   _speedPanel(c),
                   _ribbon(c, inset),
                 ]),
@@ -1959,7 +2023,13 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                   IconButton(
                     tooltip: tr('Sesli oku'),
                     icon: Icon(Icons.headphones_outlined, color: c.ink, size: 21),
-                    onPressed: _speakFromHere,
+                    onPressed: _startReading,
+                  ),
+                if (settings.ttsEnabled && settings.voiceSource == VoiceSource.model && voices.selected != null)
+                  IconButton(
+                    tooltip: tr('Önden seslendir'),
+                    icon: Icon(Icons.graphic_eq, color: c.ink, size: 21),
+                    onPressed: _openRangeVoicing,
                   ),
                 TextButton.icon(
                   onPressed: _openSettings,

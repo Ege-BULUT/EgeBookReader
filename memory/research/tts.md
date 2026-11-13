@@ -393,3 +393,25 @@ Cloud
 - Deepgram: https://developers.deepgram.com/docs/tts-models-languages-overview, https://www.deepgram.com/TTS
 - Fish Audio: https://docs.fish.audio/developer-platform/models-pricing/models-overview
 - MiniMax: https://platform.minimax.io/docs/guides/speech-t2a-websocket
+
+---
+
+## 6. Voice cloning (asked for by the user on 2026-11-13)
+
+The user wants people to hear books in their own voice or a loved one's, offline, in Turkish, English and other languages. The project is AGPL-3.0 and will never be commercial.
+
+- **License rule.** Use only weights under MIT, Apache-2.0, CC BY or OpenRAIL. Non-commercial weights stay out: XTTS-v2 (CPML), F5-TTS, Piper `tr_TR-dfki` and MMS. AGPL lets anyone sell the app, so a non-commercial model cannot ship with it, even though we ourselves never sell it. OpenRAIL-M (Supertonic 3) restricts impersonation, so cloning a voice asks the user to confirm the speaker consents.
+- **Phone route (to test).** A multilingual TTS gives the language, and a voice converter gives the timbre: Supertonic 3 (31 languages including Turkish) followed by a converter such as OpenVoice v2's tone colour converter (MIT). The converter does not depend on language, so every language the TTS speaks also works in the cloned voice. Speed on phones and quality on Turkish are **unverified**. Generating ahead while charging covers slow phones.
+- **Desktop or high-quality route.** Clone directly with Chatterbox Multilingual (MIT, 23 languages including Turkish, RTF 2.89 on an L4 GPU, too slow for phones) or OmniVoice (Apache-2.0, 600+ languages).
+- **No famous character voices.** Their voices belong to voice actors (personality rights), and being non-commercial does not change that. Ship original voices instead, and let users add their own recordings.
+
+### 6.1 Automatic voicing, design from the user (2026-11-13)
+
+- A setting like automatic colourization: "Automatic voicing". The user picks a starting buffer (default 3 or 5 pages), and its progress bar shows while it is made. After that, the rest is produced in the background while the user listens, without using up the phone's resources. The user is told when listening catches up with the buffer.
+- A range picker (two-handle slider, for example pages 50 to 150) shows the word count and a time estimate for this device, then progress as `%42.17` and `63/100`.
+- Buffer maths. Let `g` be the seconds to generate one page and `l` the seconds to listen to it, both measured on the device and refined like `secondsPerPage`. If `g <= l`, one or two pages are enough. Otherwise listening N pages without a stop needs a buffer of `B = ceil(N * (1 - l/g))`.
+- Notes added in discussion:
+  - Store audio compressed through the platform encoder (AAC). At about 15–30 MB per hour, a 10-hour book is 150–300 MB, so use a cache limit and drop pages already listened to.
+  - Key the cache by voice, speed and sentence-text hash, not by page number, so a font change does not throw it away.
+  - Run in the background at low priority with 1–2 threads, and slow down on `PowerManager` thermal status or low battery.
+  - When listening catches up, offer to wait or to carry on in the system voice.

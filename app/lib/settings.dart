@@ -246,6 +246,16 @@ class Settings extends ChangeNotifier {
   int ttsVoice = 0;
   double ttsSpeed = 1;
   String apiBase = '', apiKey = '', apiModel = '', apiVoice = '';
+
+  /// Automatic voicing: pages are voiced ahead and kept, so a slow phone reads without gaps.
+  bool autoVoice = false;
+  int autoVoicePages = 5;
+
+  /// Per model: seconds to make one character of speech, and seconds it lasts, measured on this phone.
+  Map<String, List<double>> voicePace = {};
+
+  /// A phone voice picked by name ("name|locale"); null takes the language's default.
+  String? systemVoice;
   final customLight = CustomPaper(const Color(0xFFE9EEF0));
   final customDark = CustomPaper(const Color(0xFF12202A))
     ..paper = const Color(0xFF12202A)
@@ -351,6 +361,13 @@ class Settings extends ChangeNotifier {
       apiKey = j['apiKey'] as String? ?? '';
       apiModel = j['apiModel'] as String? ?? '';
       apiVoice = j['apiVoice'] as String? ?? '';
+      autoVoice = j['autoVoice'] as bool? ?? false;
+      autoVoicePages = j['autoVoicePages'] as int? ?? 5;
+      voicePace = {
+        for (final e in (j['voicePace'] as Map<String, dynamic>? ?? const {}).entries)
+          e.key: [for (final v in e.value as List) (v as num).toDouble()],
+      };
+      systemVoice = j['systemVoice'] as String?;
       if (j['zones'] != null) zones = TapLayout.fromJson(j['zones'] as Map<String, dynamic>);
     } catch (_) {
       // A settings file from another version is not worth stopping the app for.
@@ -412,6 +429,10 @@ class Settings extends ChangeNotifier {
       'apiKey': apiKey,
       'apiModel': apiModel,
       'apiVoice': apiVoice,
+      'autoVoice': autoVoice,
+      'autoVoicePages': autoVoicePages,
+      'voicePace': voicePace,
+      'systemVoice': systemVoice,
     }));
   }
 

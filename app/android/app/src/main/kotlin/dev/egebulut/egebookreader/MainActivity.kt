@@ -143,6 +143,13 @@ class MainActivity : FlutterActivity() {
                             SAVE_DOCUMENT,
                         )
                     }
+                    "encodeAac" -> {
+                        val args = call.arguments as Map<*, *>
+                        inBackground(result) { encodeAac(args["from"] as String, args["to"] as String); null }
+                    }
+                    "thermal" -> result.success(
+                        if (Build.VERSION.SDK_INT >= 29) (getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus else 0,
+                    )
                     "speechService" -> {
                         updateSpeechService(call.arguments as Map<*, *>)
                         result.success(null)
@@ -150,6 +157,58 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        }
+    }
+
+    /** A 16-bit mono WAV from the voice, packed as AAC in an .m4a: about a tenth of the space. */
+    private fun encodeAac(from: String, to: String) {
+        val wav = java.io.File(from).readBytes()
+        val rate = java.nio.ByteBuffer.wrap(wav).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(24)
+        val pcm = wav.copyOfRange(44, wav.size)
+        val mime = android.media.MediaFormat.MIMETYPE_AUDIO_AAC
+        val format = android.media.MediaFormat.createAudioFormat(mime, rate, 1).apply {
+            setInteger(android.media.MediaFormat.KEY_AAC_PROFILE, android.media.MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+            setInteger(android.media.MediaFormat.KEY_BIT_RATE, 48000)
+            setInteger(android.media.MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
+        }
+        val codec = android.media.MediaCodec.createEncoderByType(mime)
+        val muxer = android.media.MediaMuxer(to, android.media.MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        try {
+            codec.configure(format, null, null, android.media.MediaCodec.CONFIGURE_FLAG_ENCODE)
+            codec.start()
+            val info = android.media.MediaCodec.BufferInfo()
+            var offset = 0
+            var inputDone = false
+            var track = -1
+            while (true) {
+                if (!inputDone) {
+                    val i = codec.dequeueInputBuffer(10_000)
+                    if (i >= 0) {
+                        val input = codec.getInputBuffer(i)!!
+                        input.clear()
+                        val n = minOf(input.remaining() and 1.inv(), pcm.size - offset)
+                        input.put(pcm, offset, n)
+                        val time = offset / 2L * 1_000_000 / rate
+                        offset += n
+                        inputDone = offset >= pcm.size
+                        codec.queueInputBuffer(i, 0, n, time, if (inputDone) android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM else 0)
+                    }
+                }
+                val o = codec.dequeueOutputBuffer(info, 10_000)
+                if (o == android.media.MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    track = muxer.addTrack(codec.outputFormat)
+                    muxer.start()
+                } else if (o >= 0) {
+                    if (info.flags and android.media.MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) info.size = 0
+                    if (info.size > 0 && track >= 0) muxer.writeSampleData(track, codec.getOutputBuffer(o)!!, info)
+                    codec.releaseOutputBuffer(o, false)
+                    if (info.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                }
+            }
+            muxer.stop()
+        } finally {
+            codec.release()
+            muxer.release()
         }
     }
 

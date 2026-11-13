@@ -16,6 +16,7 @@ import 'motion.dart';
 import 'onboarding.dart';
 import 'settings.dart';
 import 'tts.dart';
+import 'voicing.dart';
 import 'zones.dart';
 
 class SettingsSheet extends StatefulWidget {
@@ -77,7 +78,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([settings, colorizer, voices, library]),
+      listenable: Listenable.merge([settings, colorizer, voices, voicing, library]),
       builder: (context, _) {
         final c = settings.palette;
         final motion = motionOn(context, settings);
@@ -399,6 +400,7 @@ extension on _SettingsSheetState {
         Heading('Telefona kurulan sesler'),
         for (final m in voiceCatalog) Padding(padding: const EdgeInsets.only(bottom: 10), child: _voiceCard(m)),
         if (voices.error != null) Text(voices.error!, style: TextStyle(color: c.accent, fontSize: 13)),
+        ..._autoVoice(),
       ],
       if (s.voiceSource == VoiceSource.api) ...[
         Heading('API anahtarı'),
@@ -411,6 +413,42 @@ extension on _SettingsSheetState {
         _field('Ses', s.apiVoice, '', (v) => s.update((x) => x.apiVoice = v)),
       ],
       _SettledSlider(label: 'Konuşma hızı', value: s.ttsSpeed, min: 0.5, max: 3, divisions: 25, decimals: 1, suffix: 'x', onEnd: (v) => s.update((x) => x.ttsSpeed = (v * 10).round() / 10)),
+    ];
+  }
+
+  List<Widget> _autoVoice() {
+    final s = settings;
+    final c = s.palette;
+    final pace = voices.selected == null ? null : voicing.paceOf(voices.selected!);
+    return [
+      Heading('Otomatik seslendirme'),
+      Text(tr('Sayfalar önden seslendirilip saklanır, yavaş telefonda da okuma kesilmez. Dinlerken geri kalanı arka planda, telefonu yormadan hazırlanır.'),
+          style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+      Toggle('Otomatik seslendirme', s.autoVoice, (v) => s.update((x) => x.autoVoice = v)),
+      if (s.autoVoice) ...[
+        const SizedBox(height: 12),
+        Text(tr('Okumadan önce hazırlanacak sayfa'), style: TextStyle(color: c.ink, fontSize: 15)),
+        const SizedBox(height: 8),
+        Row(children: [
+          _Step(icon: Icons.remove, onTap: () => s.update((x) => x.autoVoicePages = max(1, x.autoVoicePages - 1))),
+          Expanded(child: Text('${s.autoVoicePages}', textAlign: TextAlign.center, style: TextStyle(color: c.ink, fontSize: 16))),
+          _Step(icon: Icons.add, onTap: () => s.update((x) => x.autoVoicePages = min(30, x.autoVoicePages + 1))),
+        ]),
+        const SizedBox(height: 8),
+        Text(
+          tr('Telefon yavaşsa bölüm sonuna kadar kesilmeyecek kadar sayfa hazırlanır.') +
+              (pace == null ? '' : ' ${tr('Bu telefonda 1 dakikalık ses ~{} içinde hazırlanıyor.').replaceAll('{}', spanOf(60 * pace[0] / pace[1] * s.ttsSpeed))}'),
+          style: TextStyle(color: c.muted, fontSize: 13, height: 1.35),
+        ),
+      ],
+      const SizedBox(height: 10),
+      Row(children: [
+        Expanded(
+          child: Text('${tr('Saklanan ses')}: ${(voicing.bytes / (1 << 20)).toStringAsFixed(1)} MB',
+              style: TextStyle(color: c.muted, fontSize: 13)),
+        ),
+        TextButton(onPressed: voicing.bytes == 0 ? null : voicing.clear, style: TextButton.styleFrom(foregroundColor: c.accent), child: Text(tr('Sil'))),
+      ]),
     ];
   }
 
@@ -481,7 +519,7 @@ extension on _SettingsSheetState {
             const Spacer(),
             if (selected) ...[
               _Step(icon: Icons.remove, onTap: () => s.update((x) => x.ttsVoice = max(0, x.ttsVoice - 1))),
-              Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text('${tr('Ses')} ${s.ttsVoice + 1}', style: TextStyle(color: c.ink, fontSize: 14))),
+              Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text(voiceLabel(m, s.ttsVoice), style: TextStyle(color: c.ink, fontSize: 14))),
               _Step(icon: Icons.add, onTap: () => s.update((x) => x.ttsVoice = min(m.voiceCount - 1, x.ttsVoice + 1))),
             ],
           ]),

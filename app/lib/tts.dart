@@ -51,6 +51,14 @@ class VoiceModel {
 /// Supertonic's voices with the best-sounding ones first (the model's own numbers are these plus one).
 const supertonicOrder = [4, 8, 9, 3, 0, 1, 2, 5, 6, 7];
 
+/// "Kadın 2", "Erkek 1"…: voice [i] of [m] named by whether it is a woman's or a man's, counted in that group.
+/// Supertonic's styles 0–4 are women and 5–9 men; Kokoro 1.1's speakers 0–57 are women and 58–102 men.
+String voiceLabel(VoiceModel m, int i) {
+  bool woman(int j) => m.isSupertonic ? supertonicOrder[j] < 5 : j < 58;
+  final n = [for (var j = 0; j <= i; j++) j].where((j) => woman(j) == woman(i)).length;
+  return '${tr(woman(i) ? 'Kadın' : 'Erkek')} $n';
+}
+
 const voiceCatalog = [
   VoiceModel(
     id: 'sherpa-onnx-supertonic-3-tts-int8-2026-05-11',
@@ -309,6 +317,15 @@ class Speaker extends ChangeNotifier {
   bool active = false, paused = false, scrubbing = false;
   String? error;
 
+  /// Automatic voicing has not made the next sentence yet: the voice waits for the reader to choose.
+  bool caughtUp = false;
+
+  /// Asked before each sentence in a voice the phone makes: a ready file, or null to make it now.
+  File? Function(SpokenSentence s, VoiceModel m)? ready;
+
+  /// True when the next sentence should wait for automatic voicing instead of being made now.
+  bool Function(SpokenSentence s)? mustWait;
+
   /// Ticks whenever the highlighted word changes, so only the marker and the bar redraw.
   final cursor = ValueNotifier<int>(0);
 
@@ -349,6 +366,7 @@ class Speaker extends ChangeNotifier {
     char = 0;
     active = true;
     paused = false;
+    caughtUp = false;
     error = null;
     _audio.clear();
     cursor.value++;
@@ -363,6 +381,7 @@ class Speaker extends ChangeNotifier {
 
   void resume() {
     paused = false;
+    caughtUp = false;
     _play();
   }
 
@@ -378,6 +397,7 @@ class Speaker extends ChangeNotifier {
     if (!active) return;
     active = false;
     paused = false;
+    caughtUp = false;
     scrubbing = false;
     _cancelSound();
     _audio.clear();
@@ -436,6 +456,12 @@ class Speaker extends ChangeNotifier {
         final s = sentences[index];
         // Always from the start of a word, so a resumed voice never begins mid-syllable.
         final from = s.words.isEmpty ? 0 : s.words[map.wordAt(s, char)].start;
+        final model = voices.selected;
+        if (settings.voiceSource == VoiceSource.model && model != null && ready?.call(s, model) == null && (mustWait?.call(s) ?? false)) {
+          caughtUp = true;
+          pause();
+          return;
+        }
         await _speak(s, index + 1 < sentences.length ? sentences[index + 1] : null, from, run);
         if (run != _run) return;
         index++;
@@ -458,9 +484,11 @@ class Speaker extends ChangeNotifier {
       if (next != null) unawaited(_audioFor(next, _fetchFromApi).catchError((_) => File('')));
       await _playFile(await file, s, from, run, settings.ttsSpeed);
     } else if (settings.voiceSource == VoiceSource.model && model != null) {
-      final file = _audioFor(s, (x) => _synthesize(x, model));
-      if (next != null) unawaited(_audioFor(next, (x) => _synthesize(x, model)).catchError((_) => File('')));
-      await _playFile(await file, s, from, run, 1);
+      final kept = ready?.call(s, model);
+      final file = kept != null ? Future.value(kept) : _audioFor(s, (x) => synthesize(x, model));
+      if (next != null && ready?.call(next, model) == null) unawaited(_audioFor(next, (x) => synthesize(x, model)).catchError((_) => File('')));
+      // A kept file was made at 1x; one made now already has the speed in it.
+      await _playFile(await file, s, from, run, kept != null ? settings.ttsSpeed : 1);
     } else {
       await _speakWithSystem(s, from, run);
     }
@@ -486,6 +514,7 @@ class Speaker extends ChangeNotifier {
       _systemReady = true;
     }
     if (s.lang != null) await _system.setLanguage(s.lang!);
+    await _useSystemVoice(s.lang);
     await _system.setSpeechRate(0.5 * settings.ttsSpeed);
     if (run != _run) return;
     _systemBase = from;
@@ -534,7 +563,46 @@ class Speaker extends ChangeNotifier {
     _loadedModel = null;
   }
 
-  Future<Uint8List> _synthesize(SpokenSentence s, VoiceModel model) async {
+  /// The phone's voices for a language, by name and locale, in a steady order.
+  /// Voices that need the internet are left out; with the book's language unknown, the phone's own is used.
+  Future<List<Map<String, String>>> systemVoices(String? lang) async {
+    final code = (lang ?? Platform.localeName).split(RegExp('[-_]')).first.toLowerCase();
+    final mine = [
+      for (final v in await _system.getVoices as List)
+        if ('${(v as Map)['locale']}'.toLowerCase().startsWith(code) &&
+            !'${v['name']}'.contains('network') &&
+            !['1', 'true'].contains('${v['network_required']}'))
+          {'name': '${v['name']}', 'locale': '${v['locale']}'},
+    ];
+    return mine..sort((a, b) => a['name']!.compareTo(b['name']!));
+  }
+
+  Future<void> _useSystemVoice(String? lang) async {
+    final chosen = settings.systemVoice?.split('|');
+    if (chosen == null || chosen.length != 2) return;
+    final code = (lang ?? Platform.localeName).split(RegExp('[-_]')).first.toLowerCase();
+    if (!chosen[1].toLowerCase().startsWith(code)) return; // chosen for another language
+    await _system.setVoice({'name': chosen[0], 'locale': chosen[1]});
+  }
+
+  final _preview = AudioPlayer();
+
+  /// Says [text] once in a voice the reader is choosing, without touching what is being read.
+  Future<void> preview(String text, String? lang, {VoiceModel? model, int voice = 0, String? systemVoice}) async {
+    await _preview.stop();
+    if (model == null) {
+      if (lang != null) await _system.setLanguage(lang);
+      final v = systemVoice?.split('|');
+      if (v != null && v.length == 2) await _system.setVoice({'name': v[0], 'locale': v[1]});
+      await _system.setSpeechRate(0.5 * settings.ttsSpeed);
+      await _system.speak(text);
+      return;
+    }
+    final bytes = await synthesize(SpokenSentence(text, lang, 0, const []), model, voice: voice);
+    await _preview.play(BytesSource(bytes, mimeType: 'audio/wav'));
+  }
+
+  Future<Uint8List> synthesize(SpokenSentence s, VoiceModel model, {int? voice, double? speed}) async {
     if (_loadedModel != model.id) {
       await releaseModelKeepingSpeech();
       final ready = ReceivePort();
@@ -543,8 +611,9 @@ class Speaker extends ChangeNotifier {
       _loadedModel = model.id;
     }
     final reply = ReceivePort();
-    _jobs!.send(_SynthJob(s.text, _sid(model), settings.ttsSpeed, _modelLanguage(s, model), reply.sendPort));
-    final result = await reply.first;
+    _jobs!.send(_SynthJob(s.text, sidOf(model, voice ?? settings.ttsVoice), speed ?? settings.ttsSpeed, _modelLanguage(s, model), reply.sendPort));
+    // A model let go while this was being made never answers.
+    final result = await reply.first.timeout(const Duration(minutes: 2), onTimeout: () => 'timed out');
     reply.close();
     if (result is String) throw StateError(result);
     return result as Uint8List;
@@ -557,8 +626,8 @@ class Speaker extends ChangeNotifier {
     _loadedModel = null;
   }
 
-  int _sid(VoiceModel model) {
-    final i = settings.ttsVoice.clamp(0, model.voiceCount - 1);
+  int sidOf(VoiceModel model, int voice) {
+    final i = voice.clamp(0, model.voiceCount - 1);
     return model.isSupertonic ? supertonicOrder[i] : i;
   }
 

@@ -11,7 +11,7 @@ import 'package:egebookreader/curl.dart';
 import 'package:egebookreader/formats.dart';
 import 'package:egebookreader/incoming.dart';
 import 'package:egebookreader/library_sheets.dart';
-import 'package:egebookreader/main.dart' show Book, Highlight, sameFile;
+import 'package:egebookreader/main.dart' show Book, Highlight, sameFile, settings;
 import 'package:egebookreader/panels.dart';
 import 'package:egebookreader/stats.dart';
 import 'package:egebookreader/meta.dart';
@@ -19,6 +19,8 @@ import 'package:egebookreader/settings.dart';
 import 'package:egebookreader/shelf.dart';
 import 'package:egebookreader/tts.dart';
 import 'package:egebookreader/viewer.dart';
+import 'package:egebookreader/voicing.dart';
+import 'package:egebookreader/l10n.dart';
 import 'package:egebookreader/zones.dart';
 import 'package:egebookreader/sources.dart';
 import 'package:flutter/material.dart';
@@ -583,5 +585,35 @@ void main() {
 <dc:title>A Wizard of Earthsea</dc:title><dc:creator>Ursula K. Le Guin</dc:creator>
 <meta name="calibre:series" content="Earthsea"/><meta name="calibre:series_index" content="1.0"/></metadata></package>''');
     expect((m.fields['title'], m.fields['author'], m.fields['series'], m.fields['volume']), ('A Wizard of Earthsea', 'Ursula K. Le Guin', 'Earthsea', '1'));
+  });
+
+  test('automatic voicing: file names, voice labels, buffer', () {
+    expect(speechKey('a'), 'af63dc4c8601ec8c'); // FNV-1a 64 of "a"
+    expect(speechKey('Merhaba.'), speechKey('Merhaba.'));
+    expect(speechKey('Merhaba.'), isNot(speechKey('Merhaba!')));
+    final supertonic = voiceCatalog.firstWhere((m) => m.isSupertonic), kokoro = voiceCatalog.firstWhere((m) => !m.isSupertonic);
+    expect([for (var i = 0; i < 4; i++) voiceLabel(supertonic, i)],
+        ['${tr('Kadın')} 1', '${tr('Erkek')} 1', '${tr('Erkek')} 2', '${tr('Kadın')} 2']);
+    expect((voiceLabel(kokoro, 57), voiceLabel(kokoro, 58)), ('${tr('Kadın')} 58', '${tr('Erkek')} 1'));
+    settings.voicePace[supertonic.id] = [0.5, 1]; // makes faster than it speaks: the chosen pages are enough
+    expect(bufferPages(supertonic, 100), settings.autoVoicePages);
+    settings.voicePace[supertonic.id] = [2, 1]; // twice as slow: half of the chapter first
+    expect(bufferPages(supertonic, 100), 50);
+    settings.ttsSpeed = 2; // heard twice as fast: the same phone now falls behind
+    settings.voicePace[supertonic.id] = [0.75, 1];
+    expect(bufferPages(supertonic, 100), 34);
+    settings.ttsSpeed = 1;
+    settings.voicePace[supertonic.id] = [10, 1];
+    expect(bufferPages(supertonic, 100), 60);
+  });
+
+  test('every interface text has an English line', () {
+    final en = File('lib/l10n.dart').readAsStringSync();
+    final missing = <String>{
+      for (final f in Directory('lib').listSync().whereType<File>())
+        for (final m in RegExp(r"\btr\('((?:[^'\\$]|\\.)*)'\)").allMatches(f.readAsStringSync()))
+          if (!en.contains("'${m[1]}':") && !en.contains('"${m[1]!.replaceAll(r"\'", "'")}":')) m[1]!,
+    };
+    expect(missing, isEmpty);
   });
 }

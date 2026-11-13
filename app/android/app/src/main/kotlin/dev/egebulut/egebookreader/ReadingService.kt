@@ -152,7 +152,7 @@ class ReadingService : Service() {
         val notification = builder
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(title)
-            .setContentText(labels[3])
+            .setContentText(labels.getOrElse(4) { labels[3] })
             .setContentIntent(open)
             .setOngoing(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)

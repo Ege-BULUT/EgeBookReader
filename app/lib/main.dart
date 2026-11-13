@@ -28,6 +28,7 @@ import 'shelf.dart';
 import 'sources.dart';
 import 'stats.dart';
 import 'tts.dart';
+import 'voicing.dart';
 
 final settings = Settings();
 final library = Library();
@@ -38,6 +39,9 @@ Future<void> main() async {
   await fonts.load();
   await colorizer.load();
   await voices.load();
+  await voicing.load();
+  speaker.ready = voicing.fileFor;
+  speaker.mustWait = (s) => settings.autoVoice && voicing.running && s.page >= voicing.runFrom;
   await settings.load();
   FlutterError.onError = (d) {
     FlutterError.presentError(d);
