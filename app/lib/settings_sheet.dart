@@ -134,7 +134,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
       }),
       Padding(
         padding: const EdgeInsets.only(top: 4),
-        child: Text(tr('Yalnızca aranacak metin (kitabın adı ve yazarı) Open Library\'ye gönderilir.'), style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
+        child: Text(tr('Yalnızca kitabın adı ve yazarı Open Library\'ye ve Vikipedi\'ye gönderilir; yazar ve kitap hakkındaki yazılar da oradan gelir.'), style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
       ),
       Heading('İzlenen klasör'),
       Text(

@@ -52,6 +52,9 @@ List<String> tagsFrom(Iterable<String> subjects) {
   ].take(5).toList();
 }
 
+/// How the app names itself to Open Library and Wikipedia, as both ask.
+const userAgent = 'EgeBookReader (egebulut.iletisim@outlook.com)';
+
 /// What Open Library knows about the book [query] names (a title, perhaps with its author): empty when it is not
 /// known, null when it could not be asked. Only [query] is sent.
 Future<BookMeta?> lookUpOnline(String query) async {
@@ -60,7 +63,7 @@ Future<BookMeta?> lookUpOnline(String query) async {
     final uri = Uri.https('openlibrary.org', '/search.json',
         {'q': query, 'fields': 'title,author_name,publisher,first_publish_year,language,isbn,subject', 'limit': '1'});
     final request = await client.getUrl(uri);
-    request.headers.set(HttpHeaders.userAgentHeader, 'EgeBookReader (egebulut.iletisim@outlook.com)');
+    request.headers.set(HttpHeaders.userAgentHeader, userAgent);
     final response = await request.close().timeout(const Duration(seconds: 20));
     if (response.statusCode != 200) return null;
     final json = jsonDecode(await response.transform(utf8.decoder).join()) as Map<String, dynamic>;

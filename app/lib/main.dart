@@ -19,6 +19,7 @@ import 'backup.dart' show logError;
 import 'library_sheets.dart';
 import 'l10n.dart';
 import 'onboarding.dart';
+import 'player.dart';
 import 'meta.dart';
 import 'motion.dart';
 import 'reader.dart';
@@ -150,6 +151,9 @@ class Book {
   /// Sentences the reader marked, with their notes.
   final highlights = <Highlight>[];
 
+  /// An audiobook file of this book (mp3, m4b, m4a), played in place of a voice reading the text.
+  String? audio;
+
   double get progress => total <= 1 ? 0 : (page + 1) / total;
 
   bool get isComic => comicExtensions.contains(p.extension(path).toLowerCase());
@@ -169,6 +173,7 @@ class Book {
         'colorizeStarted': colorizeStarted, 'rtl': rtl, 'favorite': favorite, 'categories': categories.toList(), 'tags': tags,
         'lists': lists.toList(), 'info': info, 'online': online, 'looked': looked, 'metaRead': metaRead, 'query': query,
         'customCover': customCover, 'added': added, 'opened': opened, 'highlights': highlights, 'rating': rating, 'secondsPerPage': secondsPerPage,
+        'audio': audio,
       };
   static Book fromJson(Map<String, dynamic> j) {
     List<String> strings(String key) => ((j[key] as List<dynamic>?) ?? const []).cast<String>();
@@ -196,6 +201,7 @@ class Book {
       ..opened = j['opened'] as int? ?? 0
       ..rating = j['rating'] as int? ?? 0
       ..secondsPerPage = (j['secondsPerPage'] as num?)?.toDouble() ?? 0
+      ..audio = j['audio'] as String?
       ..highlights.addAll(((j['highlights'] as List<dynamic>?) ?? const []).map((e) => Highlight.fromJson(e as Map<String, dynamic>)));
   }
 }
@@ -243,6 +249,21 @@ class Library extends ChangeNotifier {
 
   /// The reader's own lists, in the order they were made. A list may be empty.
   final listNames = <String>[];
+
+  /// Listening shelves, kept apart from the lists: each name with its books' paths in the order they play.
+  final shelves = <String, List<String>>{};
+
+  /// The shelf being played, whose next book opens when one ends; not kept.
+  String? playing;
+
+  /// The books in library.json and the shelves. Until 0.5.0 the file was the list of books alone.
+  static (List<dynamic>, Map<String, List<String>>) readIndex(Object? json) => switch (json) {
+        {'books': final List<dynamic> books} => (books, {
+            for (final e in ((json['shelves'] as Map<String, dynamic>?) ?? const {}).entries) e.key: (e.value as List<dynamic>).cast<String>(),
+          }),
+        final List<dynamic> books => (books, {}),
+        _ => throw const FormatException('library.json'),
+      };
   late Directory _dir;
   File get _index => File(p.join(_dir.path, 'library.json'));
   File get _lists => File(p.join(_dir.path, 'lists.json'));
@@ -252,8 +273,9 @@ class Library extends ChangeNotifier {
     _dir = await getApplicationDocumentsDirectory();
     if (_index.existsSync()) {
       try {
-        final list = jsonDecode(_index.readAsStringSync()) as List<dynamic>;
+        final (list, kept) = readIndex(jsonDecode(_index.readAsStringSync()));
         books.addAll(list.map((e) => Book.fromJson(e as Map<String, dynamic>)).where((b) => File(b.path).existsSync()));
+        shelves.addAll(kept);
       } on FormatException {
         // Before 0.1.9 a write cut short could leave it empty; the books themselves are found again below.
         _index.renameSync('${_index.path}.broken');
@@ -317,7 +339,7 @@ class Library extends ChangeNotifier {
   Future<void> flush() async {
     _saving?.cancel();
     _saving = null;
-    writeWhole(_index, jsonEncode(books));
+    writeWhole(_index, jsonEncode({'books': books, 'shelves': shelves}));
     writeWhole(_lists, jsonEncode(listNames));
   }
 
@@ -407,6 +429,65 @@ class Library extends ChangeNotifier {
     changed();
   }
 
+  /// [name]'s books that are still in the library, in playing order.
+  List<Book> shelfBooks(String name) => [
+        for (final path in shelves[name] ?? const <String>[]) ?books.where((b) => b.path == path).firstOrNull,
+      ];
+
+  /// Puts [b] on the shelf [name], made if new, or takes it off.
+  void toggleOnShelf(String name, Book b) {
+    final shelf = shelves.putIfAbsent(name, () => []);
+    if (!shelf.remove(b.path)) shelf.add(b.path);
+    changed();
+  }
+
+  void moveOnShelf(String name, int from, int to) {
+    final shelf = [for (final b in shelfBooks(name)) b.path];
+    shelf.insert(to, shelf.removeAt(from));
+    shelves[name] = shelf;
+    changed();
+  }
+
+  void renameShelf(String from, String to) {
+    // Rebuilt to keep the shelf in its place.
+    final all = {for (final e in shelves.entries) e.key == from ? to : e.key: e.value};
+    shelves
+      ..clear()
+      ..addAll(all);
+    if (playing == from) playing = to;
+    changed();
+  }
+
+  void removeShelf(String name) {
+    shelves.remove(name);
+    if (playing == name) playing = null;
+    changed();
+  }
+
+  /// The book after [b] on the shelf being played, or null.
+  Book? nextOnShelf(Book b) {
+    final books = playing == null ? const <Book>[] : shelfBooks(playing!);
+    final i = books.indexOf(b);
+    return i >= 0 && i + 1 < books.length ? books[i + 1] : null;
+  }
+
+  /// Copies an audiobook file in with [b], in place of any it had.
+  Future<void> attachAudio(Book b, String from) async {
+    await detachAudio(b, notify: false);
+    final to = File(p.join(_dir.path, 'audio', '${DateTime.now().millisecondsSinceEpoch}${p.extension(from).toLowerCase()}'));
+    await to.create(recursive: true);
+    await File(from).copy(to.path);
+    b.audio = to.path;
+    changed();
+  }
+
+  Future<void> detachAudio(Book b, {bool notify = true}) async {
+    final old = b.audio;
+    b.audio = null;
+    if (old != null) await File(old).delete().catchError((_) => File(old));
+    if (notify) changed();
+  }
+
   Future<void> _add(String path) async {
     final source = await openBook(path);
     final cover = await _coverFor(source, path);
@@ -452,7 +533,11 @@ class Library extends ChangeNotifier {
   /// Removes the book and everything kept for it: the file, its covers and an unpacked comic.
   Future<void> remove(Book b) async {
     books.remove(b);
+    for (final shelf in shelves.values) {
+      shelf.remove(b.path);
+    }
     await clearCover(b, notify: false);
+    await detachAudio(b, notify: false);
     final unpacked = await comicFolder(b.path); // before the file goes: its size is part of the name
     if (unpacked.existsSync()) await unpacked.delete(recursive: true);
     for (final path in [b.path, ?b.coverPath]) {
@@ -1216,7 +1301,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
                     ),
                   ),
                 ),
-                if (_filter == 'all' && _search == null && _more.count == 0 && _picking == null) ..._recent(c),
+                if (_filter == 'all' && _search == null && _more.count == 0 && _picking == null) ...[..._recent(c), ...listeningShelves(context)],
                 if (shown.isEmpty)
                   SliverToBoxAdapter(
                     child: Padding(
