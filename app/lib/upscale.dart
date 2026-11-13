@@ -33,7 +33,7 @@ const upscaleModel = ColorModel(
 const _k = 4;
 
 /// Tiles are this big with this much overlap, so memory stays small whatever the picture's size.
-const _core = 112, _pad = 8;
+const _core = 110, _pad = 18; // 18 is the model's reach, so tiles join exactly
 
 const _device = MethodChannel('egebookreader/volume');
 

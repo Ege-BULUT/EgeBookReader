@@ -86,12 +86,12 @@ void main() {
     for (final (t, c) in steps.indexed) {
       probs[t * 3 + c] = 1;
     }
-    expect(ctcDecode(probs, steps.length, 3, ['a', 'b']), 'aab');
+    expect(ctcDecode(probs, steps.length, 3, ['a', 'b']), ('aab', 1.0));
     expect(sentenceCase("NOT MY DAILY SALARY. MY MONTHLY SALARY. I'M FINE"), "Not my daily salary. My monthly salary. I'm fine");
     expect(sentenceCase('...and the last touch.'), '...and the last touch.');
-    final spm = Unigram({'▁': -2, '▁the': -1, '▁th': -3, 'e': -2, '▁cat': -1.5, 'c': -4, 'a': -4, 't': -4, '!': -3});
-    expect(spm.encode('the  cat！'), ['▁the', '▁cat', '!']);
-    expect(spm.encode('the cat?'), ['▁the', '▁cat', '?'], reason: 'an unknown character stands alone');
+    final spm = Unigram({'▁': -2, '▁the': -1, '▁th': -3, 'e': -2, '▁cat': -1.5, 'c': -4, 'a': -4, 't': -4, '!': -3}, unknown: -14, rules: {'！': '!', '\t': ' '});
+    expect(spm.encode(' the \t cat！'), ['▁the', '▁cat', '!']);
+    expect(spm.encode('the cat?¿'), ['▁the', '▁cat', '?¿'], reason: 'unknown characters in a row make one piece');
     expect(joinPieces(['▁the', '▁cat', '!']), 'the cat!');
   });
 
@@ -112,6 +112,9 @@ void main() {
     expect(px(0, 300), 0, reason: 'the padding');
     expect(joinLines(['PAY A LITTLE', 'MORE, BUT ROUGH-', 'LY 70%']), 'PAY A LITTLE MORE, BUT ROUGHLY 70%');
     expect(joinLines(['こんにちは', '元気'], vertical: true), 'こんにちは元気');
+    expect(joinLines(['おい待て!', 'どこへ']), 'おい待て!どこへ');
+    expect(splitSentences('My monthly salary is an astounding... 459 dollars!!! Not mine. おい!待て'),
+        ['My monthly salary is an astounding... 459 dollars!!!', 'Not mine.', 'おい!', '待て']);
     expect(translationRoute('ja', 'tr')!.length, 2);
     expect(translationRoute('en', 'en'), isEmpty);
     expect(translationRoute('tr', 'en'), isNull);

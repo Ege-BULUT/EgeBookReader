@@ -410,4 +410,8 @@ const _en = <String, String>{
   'Balonlar okunamadı.': 'The balloons could not be read.',
   'Bu dil çifti henüz desteklenmiyor.': 'This language pair is not supported yet.',
   'Önce Ayarlar > Görsel > Balon çevirisi bölümünden gerekli modelleri indir.': 'First download the models it needs in Settings > Pictures > Balloon translation.',
+  'Balonlardaki yazıyı bulur ve İngilizce yazıyı okur.': 'Finds the text in balloons and reads English text.',
+  'Japonca yazıyı okur, dikey sütunlar dahil.': 'Reads Japanese text, vertical columns included.',
+  'İngilizceden Türkçeye çevirir.': 'Translates English to Turkish.',
+  'Japoncadan İngilizceye çevirir; Türkçeye İngilizce üzerinden.': 'Translates Japanese to English, and to Turkish through English.',
 };

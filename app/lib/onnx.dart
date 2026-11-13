@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -35,7 +36,8 @@ class _Job {
 
 void _main((String, int, SendPort) start) {
   final (path, threads, ready) = start;
-  final lib = DynamicLibrary.open('libonnxruntime.so');
+  // A test on a computer can point this at its own ONNX Runtime.
+  final lib = DynamicLibrary.open(Platform.environment['EBR_ONNXRUNTIME'] ?? 'libonnxruntime.so');
   final base = lib.lookupFunction<Pointer<_ApiBase> Function(), Pointer<_ApiBase> Function()>('OrtGetApiBase')();
   final api = base.ref.getApi.asFunction<Pointer<Pointer<Void>> Function(int)>()(20);
   Pointer<NativeFunction<T>> fn<T extends Function>(int i) => api[i].cast();

@@ -36,14 +36,38 @@ class ModelPack {
       ];
 }
 
-// TODO(models): urls and facts filled from the validation run.
-const ocrPack = ModelPack('ocr', 'PP-OCRv5', '', '', 'Apache-2.0, PaddlePaddle', 'https://github.com/PaddlePaddle/PaddleOCR', []);
-const enTrPack = ModelPack('mt-en-tr', 'Opus-MT', '', '', 'CC BY 4.0, Helsinki-NLP', 'https://github.com/Helsinki-NLP/Opus-MT', []);
-const jaEnPack = ModelPack('mt-ja-en', 'Opus-MT', '', '', 'CC BY 4.0, Helsinki-NLP', 'https://github.com/Helsinki-NLP/Opus-MT', []);
+const _rapid = 'https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/master/onnx/PP-OCRv5';
+const _dicts = 'https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR';
+const _ours = 'https://github.com/Ege-BULUT/EgeBookReader/releases/download/models-v1';
+
+// Each pack's files: the detector or encoder first, then the recogniser or decoder, then its characters or tokenizer.
+const ocrPack = ModelPack('ocr', 'PP-OCRv5 EN', 'Balonlardaki yazıyı bulur ve İngilizce yazıyı okur.', '13 MB', 'Apache-2.0, PaddlePaddle',
+    'https://github.com/PaddlePaddle/PaddleOCR', [
+  ('$_rapid/det/ch_PP-OCRv5_det_mobile.onnx', 'ocr/det.onnx'),
+  ('$_rapid/rec/en_PP-OCRv5_rec_mobile.onnx', 'ocr/rec.onnx'),
+  ('$_dicts/v3.2.0/ppocr/utils/dict/ppocrv5_en_dict.txt', 'ocr/dict.txt'),
+]);
+const ocrJaPack = ModelPack('ocr-ja', 'PP-OCRv5 JA', 'Japonca yazıyı okur, dikey sütunlar dahil.', '17 MB', 'Apache-2.0, PaddlePaddle',
+    'https://github.com/PaddlePaddle/PaddleOCR', [
+  ('$_rapid/rec/ch_PP-OCRv5_rec_mobile.onnx', 'ocr-ja/rec.onnx'),
+  ('$_dicts/v3.0.0/ppocr/utils/dict/ppocrv5_dict.txt', 'ocr-ja/dict.txt'),
+]);
+const enTrPack = ModelPack('mt-en-tr', 'Opus-MT EN→TR', 'İngilizceden Türkçeye çevirir.', '36 MB', 'Apache-2.0, Helsinki-NLP',
+    'https://huggingface.co/Helsinki-NLP/opus-mt_tiny_eng-tur', [
+  ('$_ours/opus-mt-tiny-en-tr.encoder.int8.onnx', 'mt-en-tr/encoder.onnx'),
+  ('$_ours/opus-mt-tiny-en-tr.decoder.int8.onnx', 'mt-en-tr/decoder.onnx'),
+  ('$_ours/opus-mt-tiny-en-tr.tokenizer.json', 'mt-en-tr/tokenizer.json'),
+]);
+const jaEnPack = ModelPack('mt-ja-en', 'Opus-MT JA→EN', 'Japoncadan İngilizceye çevirir; Türkçeye İngilizce üzerinden.', '110 MB', 'Apache-2.0, Helsinki-NLP',
+    'https://huggingface.co/Helsinki-NLP/opus-mt-ja-en', [
+  ('https://huggingface.co/Xenova/opus-mt-ja-en/resolve/main/onnx/encoder_model_quantized.onnx', 'mt-ja-en/encoder.onnx'),
+  ('https://huggingface.co/Xenova/opus-mt-ja-en/resolve/main/onnx/decoder_model_quantized.onnx', 'mt-ja-en/decoder.onnx'),
+  ('$_ours/opus-mt-ja-en.tokenizer.json', 'mt-ja-en/tokenizer.json'),
+]);
 
 final balloonReader = BalloonReader();
 
-const balloonPacks = [ocrPack, enTrPack, jaEnPack];
+const balloonPacks = [ocrPack, ocrJaPack, enTrPack, jaEnPack];
 
 /// What works today, said plainly in the settings.
 const balloonLimits =
@@ -64,18 +88,23 @@ List<ModelPack>? translationRoute(String from, String to) => from == to
         _ => null,
       };
 
+/// The readers for text in [from]: Japanese takes its own recogniser beside the detector.
+List<ModelPack> ocrRoute(String from) => from == 'ja' ? const [ocrPack, ocrJaPack] : const [ocrPack];
+
 /// Finds the text on a comic page, reads it and translates it, balloon by balloon, on the phone.
 class BalloonReader {
+  /// [models] is where the model files are; the app's own folder unless a test says otherwise.
+  BalloonReader([this._models]);
   final _sessions = <String, OnnxModel>{};
   final _tokenizers = <String, Marian>{};
-  List<String>? _chars;
+  final _chars = <String, List<String>>{};
   String? _models;
 
   /// Why balloons from [from] to [to] cannot be read now, or null if they can.
   String? missing(String from, String to) {
     final route = translationRoute(from, to);
     if (route == null) return tr('Bu dil çifti henüz desteklenmiyor.');
-    if (![ocrPack, ...route].every((pack) => pack.parts.every(colorizer.isInstalled))) {
+    if (![...ocrRoute(from), ...route].every((pack) => pack.parts.every(colorizer.isInstalled))) {
       return tr('Önce Ayarlar > Görsel > Balon çevirisi bölümünden gerekli modelleri indir.');
     }
     return null;
@@ -100,8 +129,8 @@ class BalloonReader {
     final image = frame.image;
     final w = image.width, h = image.height;
     final rgba = (await image.toByteData())!.buffer.asUint8List();
-    // The detector sees the page at most 960 pixels on its long side, in multiples of 32.
-    final s = min(1.0, 960 / max(w, h));
+    // The detector sees the page at most 1280 pixels on its long side, in multiples of 32.
+    final s = min(1.0, 1280 / max(w, h));
     final dw = max(32, (w * s / 32).round() * 32), dh = max(32, (h * s / 32).round() * 32);
     final recorder = ui.PictureRecorder();
     ui.Canvas(recorder).drawImageRect(image, ui.Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()), ui.Rect.fromLTWH(0, 0, dw.toDouble(), dh.toDouble()),
@@ -113,13 +142,17 @@ class BalloonReader {
 
     final det = await _open(ocrPack.files[0].$2);
     final prob = await det.run([OnnxInput('x', await Isolate.run(() => detInput(smallRgba, dw, dh)), [1, 3, dh, dw])], 'fetch_name_0', dw * dh);
-    final lines = [
+    var lines = [
       for (final r in textBoxes(prob, dw, dh)) ui.Rect.fromLTRB(r.left * w / dw, r.top * h / dh, r.right * w / dw, r.bottom * h / dh),
     ];
     if (lines.isEmpty) return const [];
+    // Thin slivers are texture, not text.
+    final thickness = lines.map((r) => r.shortestSide).toList()..sort();
+    lines = lines.where((r) => r.shortestSide >= thickness[thickness.length ~/ 2] * 0.5).toList();
 
-    final rec = await _open(ocrPack.files[1].$2);
-    final chars = _chars ??= (await File(await _path(ocrPack.files[2].$2)).readAsString()).split('\n')..removeWhere((c) => c.isEmpty);
+    final reader = ocrRoute(from).last;
+    final rec = await _open(reader.files[reader.files.length - 2].$2);
+    final chars = _chars[reader.id] ??= await _readChars(reader.files.last.$2);
     final classes = chars.length + 2;
     final route = translationRoute(from, to)!;
     final out = <Balloon>[];
@@ -129,20 +162,29 @@ class BalloonReader {
         final (input, width) = lineInput(rgba, w, h, line);
         final steps = width ~/ 8;
         final probs = await rec.run([OnnxInput('x', input, [1, 3, 48, width])], 'fetch_name_0', steps * classes);
-        final text = ctcDecode(probs, steps, classes, chars).trim();
-        if (text.isNotEmpty) texts.add(text);
+        final (text, sure) = ctcDecode(probs, steps, classes, chars);
+        // Unsure reads and lines with no letter or digit are drawings mistaken for text.
+        if (sure >= 0.6 && RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(text)) texts.add(text.trim());
       }
       if (texts.isEmpty) continue;
       var text = joinLines(texts, vertical: group.where(isColumn).length * 2 > group.length);
       if (from == 'en') text = sentenceCase(text);
-      var translated = text;
+      // Opus-MT translates one sentence at a time and quietly drops the rest.
+      var parts = splitSentences(text);
       for (final pack in route) {
-        translated = await _translate(pack, translated);
+        parts = [for (final part in parts) await _translate(pack, part)];
       }
+      final translated = parts.join(' ');
       final box = group.reduce((a, b) => a.expandToInclude(b));
       out.add(Balloon(ui.Rect.fromLTRB(box.left / w, box.top / h, box.right / w, box.bottom / h), text, translated));
     }
     return out;
+  }
+
+  Future<List<String>> _readChars(String file) async {
+    final lines = (await File(await _path(file)).readAsString()).split('\n');
+    if (lines.last.isEmpty) lines.removeLast(); // the file's last newline, not a character
+    return lines;
   }
 
   Future<String> _translate(ModelPack pack, String text) async {
@@ -167,24 +209,33 @@ class BalloonReader {
       if (next == t.eos) break;
       out.add(next);
     }
-    return t.decode(out.skip(1));
+    // It sometimes starts a sentence as if it were dialogue.
+    return t.decode(out.skip(1)).replaceFirst(RegExp(r'^[-–—]\s+'), '');
   }
 }
 
-/// Lines of one balloon as one text: words across lines, a hyphen at a line's end joined; columns run on.
+/// Lines of one balloon as one text: words across lines, a hyphen at a line's end joined; columns and Chinese or
+/// Japanese lines run on without a space.
 @visibleForTesting
 String joinLines(List<String> lines, {bool vertical = false}) {
   if (vertical) return lines.join();
   var s = '';
-  for (final line in lines) {
+  for (final line in lines.where((l) => l.isNotEmpty)) {
     if (s.length > 1 && s.endsWith('-') && RegExp(r'[A-Za-z]').hasMatch(s[s.length - 2])) {
       s = s.substring(0, s.length - 1) + line;
+    } else if (s.isEmpty || s.runes.last >= 0x3000 || line.runes.first >= 0x3000) {
+      s += line;
     } else {
-      s = s.isEmpty ? line : '$s $line';
+      s = '$s $line';
     }
   }
   return s;
 }
+
+/// Sentences, cut after an end mark that a capital or a Chinese or Japanese character follows.
+@visibleForTesting
+List<String> splitSentences(String s) =>
+    s.split(RegExp(r'(?<=[.!?。！？])\s*(?=[A-Z\u3040-\u30ff\u3400-\u9fff])')).map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
 
 // ---------------------------------------------------------------------------------------------------------
 // Finding text
@@ -279,17 +330,29 @@ Float32List detInput(Uint8List rgba, int w, int h) {
   final plane = height * width;
   final out = Float32List(3 * plane);
   double at(int x, int y, int c) => rgba[((y0 + y.clamp(0, ch - 1)) * w + x0 + x.clamp(0, cw - 1)) * 4 + c].toDouble();
+  double bilinear(double x, double y, int c) {
+    final xf = x.floor(), yf = y.floor(), fx = x - xf, fy = y - yf;
+    final top = at(xf, yf, c) * (1 - fx) + at(xf + 1, yf, c) * fx;
+    final bottom = at(xf, yf + 1, c) * (1 - fx) + at(xf + 1, yf + 1, c) * fx;
+    return top * (1 - fy) + bottom * fy;
+  }
+
+  // Shrinking, each pixel averages a few samples across what it covers, so thin strokes are not lost between them.
+  final sx = tw / rw, sy = th / height;
+  final nx = sx.ceil(), ny = sy.ceil();
   for (var oy = 0; oy < height; oy++) {
-    final v = (oy + 0.5) * th / height - 0.5;
     for (var ox = 0; ox < rw; ox++) {
-      final u = (ox + 0.5) * tw / rw - 0.5;
-      // Turned a quarter left: row v, column u of the turned line is row u, column cw - 1 - v of the crop.
-      final x = turn ? cw - 1 - v : u, y = turn ? u : v;
-      final xf = x.floor(), yf = y.floor(), fx = x - xf, fy = y - yf;
       for (var c = 0; c < 3; c++) {
-        final top = at(xf, yf, c) * (1 - fx) + at(xf + 1, yf, c) * fx;
-        final bottom = at(xf, yf + 1, c) * (1 - fx) + at(xf + 1, yf + 1, c) * fx;
-        out[(2 - c) * plane + oy * width + ox] = (top * (1 - fy) + bottom * fy) / 127.5 - 1;
+        var sum = 0.0;
+        for (var j = 0; j < ny; j++) {
+          final v = oy * sy + (j + 0.5) * sy / ny - 0.5;
+          for (var i = 0; i < nx; i++) {
+            final u = ox * sx + (i + 0.5) * sx / nx - 0.5;
+            // Turned a quarter left: row v, column u of the turned line is row u, column cw - 1 - v of the crop.
+            sum += turn ? bilinear(cw - 1 - v, u, c) : bilinear(u, v, c);
+          }
+        }
+        out[(2 - c) * plane + oy * width + ox] = sum / (nx * ny) / 127.5 - 1;
       }
     }
   }
@@ -299,21 +362,27 @@ Float32List detInput(Uint8List rgba, int w, int h) {
 // ---------------------------------------------------------------------------------------------------------
 // Reading text
 
-/// Greedy CTC: the likeliest class at each of [steps] steps, repeats and blanks (class 0) dropped.
+/// Greedy CTC: the likeliest class at each of [steps] steps, repeats and blanks (class 0) dropped, with the mean
+/// probability of the characters kept.
 /// Class n is [chars][n - 1]; the class after the last character is a space.
 @visibleForTesting
-String ctcDecode(Float32List probs, int steps, int classes, List<String> chars) {
+(String, double) ctcDecode(Float32List probs, int steps, int classes, List<String> chars) {
   final out = StringBuffer();
-  var last = 0;
+  var last = 0, kept = 0;
+  var sure = 0.0;
   for (var t = 0; t < steps; t++) {
     var best = 0;
     for (var c = 1; c < classes; c++) {
       if (probs[t * classes + c] > probs[t * classes + best]) best = c;
     }
-    if (best != 0 && best != last) out.write(best - 1 < chars.length ? chars[best - 1] : ' ');
+    if (best != 0 && best != last) {
+      out.write(best - 1 < chars.length ? chars[best - 1] : ' ');
+      sure += probs[t * classes + best];
+      kept++;
+    }
     last = best;
   }
-  return out.toString();
+  return (out.toString(), kept == 0 ? 0.0 : sure / kept);
 }
 
 /// Comic lettering is all capitals; translators read ordinary sentence case better.
@@ -328,53 +397,86 @@ String sentenceCase(String s) {
 // ---------------------------------------------------------------------------------------------------------
 // Translating
 
-/// A SentencePiece unigram model: pieces and their scores, segmented by Viterbi as SentencePiece does.
+/// A SentencePiece unigram model: pieces and their scores, segmented by Viterbi exactly as SentencePiece does it.
 class Unigram {
-  Unigram(this.scores) : longest = scores.keys.fold(1, (a, k) => max(a, k.length));
+  Unigram(this.scores, {required this.unknown, this.rules = const {}})
+      : longest = scores.keys.fold(1, (a, k) => max(a, k.runes.length)),
+        _ruleLongest = rules.keys.fold(1, (a, k) => max(a, k.runes.length));
   final Map<String, double> scores;
-  final int longest;
-  late final double _unknown = scores.values.fold(0.0, min) - 10;
 
-  /// Full-width forms as NFKC folds them, which is most of what SentencePiece's normaliser does to comic text.
-  /// ponytail: no full NFKC table in Dart; half-width katakana and rarer folds pass through unchanged.
-  static String normalize(String s) {
+  /// The score of a character no piece covers.
+  final double unknown;
+
+  /// SentencePiece's normalisation table (NFKC and its own rules), longest match first.
+  final Map<String, String> rules;
+  final int longest, _ruleLongest;
+
+  /// The text as SentencePiece sees it: rules applied, spaces collapsed, each word's start marked with ▁.
+  String normalize(String text) {
+    final chars = text.runes.map(String.fromCharCode).toList();
     final out = StringBuffer();
-    for (final r in s.runes) {
-      if (r >= 0xFF01 && r <= 0xFF5E) {
-        out.writeCharCode(r - 0xFEE0);
-      } else if (r == 0x3000) {
-        out.write(' ');
-      } else if (r == 0x2026) {
-        out.write('...');
-      } else {
-        out.writeCharCode(r);
+    for (var i = 0; i < chars.length;) {
+      var matched = false;
+      for (var l = min(_ruleLongest, chars.length - i); l > 0; l--) {
+        final to = rules[chars.sublist(i, i + l).join()];
+        if (to != null) {
+          out.write(to);
+          i += l;
+          matched = true;
+          break;
+        }
       }
+      if (!matched) out.write(chars[i++]);
     }
-    return out.toString().trim().replaceAll(RegExp(r'\s+'), ' ');
+    final words = out.toString().split(' ').where((w) => w.isNotEmpty);
+    return words.isEmpty ? '' : '▁${words.join('▁')}';
   }
 
   List<String> encode(String text) {
-    final s = '▁${normalize(text).replaceAll(' ', '▁')}';
-    final chars = s.runes.map(String.fromCharCode).toList();
-    final best = List<double>.filled(chars.length + 1, double.negativeInfinity)..[0] = 0;
-    final from = List<int>.filled(chars.length + 1, 0);
-    for (var i = 0; i < chars.length; i++) {
-      if (best[i] == double.negativeInfinity) continue;
-      final piece = StringBuffer();
-      for (var j = i; j < min(chars.length, i + longest); j++) {
-        piece.write(chars[j]);
-        final score = scores[piece.toString()] ?? (j == i ? _unknown : null);
-        if (score != null && best[i] + score > best[j + 1]) {
-          best[j + 1] = best[i] + score;
-          from[j + 1] = i;
-        }
+    final chars = normalize(text).runes.map(String.fromCharCode).toList();
+    final n = chars.length;
+    // Sums in 32-bit floats, as SentencePiece adds them, so ties break the same way.
+    final best = Float32List(n + 1), reached = List<bool>.filled(n + 1, false)..[0] = true;
+    final from = List<int>.filled(n + 1, 0), unknownAt = List<bool>.filled(n + 1, false);
+    void offer(int i, int end, double score, bool isUnknown) {
+      final total = (Float32List(1)..[0] = best[i] + score)[0];
+      if (!reached[end] || total > best[end]) {
+        best[end] = total;
+        reached[end] = true;
+        from[end] = i;
+        unknownAt[end] = isUnknown;
       }
     }
-    final pieces = <String>[];
-    for (var end = chars.length; end > 0; end = from[end]) {
-      pieces.add(chars.sublist(from[end], end).join());
+
+    for (var i = 0; i < n; i++) {
+      if (!reached[i]) continue;
+      var single = false;
+      final piece = StringBuffer();
+      for (var j = i; j < min(n, i + longest); j++) {
+        piece.write(chars[j]);
+        final score = scores[piece.toString()];
+        if (score == null) continue;
+        if (j == i) single = true;
+        offer(i, j + 1, score, false);
+      }
+      if (!single) offer(i, i + 1, unknown, true);
     }
-    return pieces.reversed.toList();
+    final pieces = <(String, bool)>[];
+    for (var end = n; end > 0; end = from[end]) {
+      pieces.add((chars.sublist(from[end], end).join(), unknownAt[end]));
+    }
+    // Unknown characters in a row make one unknown piece.
+    final out = <String>[];
+    var lastUnknown = false;
+    for (final (piece, isUnknown) in pieces.reversed) {
+      if (isUnknown && lastUnknown) {
+        out.last += piece;
+      } else {
+        out.add(piece);
+      }
+      lastUnknown = isUnknown;
+    }
+    return out;
   }
 }
 
@@ -419,7 +521,15 @@ class BalloonText extends StatelessWidget {
 /// An Opus-MT model's tokenizer, from the JSON made for it: source pieces with scores, and the shared vocabulary.
 class Marian {
   Marian(Map<String, dynamic> j)
-      : unigram = Unigram({for (final e in j['source'] as List) (e as List)[0] as String: (e[1] as num).toDouble()}),
+      : unigram = Unigram(
+          {
+            // Only normal (1) and user-defined (4) pieces take part; control pieces such as </s> never match text.
+            for (final (i, e) in (j['source'] as List).indexed)
+              if ((j['sourceTypes'] as List)[i] case 1 || 4) (e as List)[0] as String: (e[1] as num).toDouble(),
+          },
+          unknown: (j['unkScore'] as num).toDouble(),
+          rules: (j['normalize'] as Map<String, dynamic>).cast<String, String>(),
+        ),
         vocab = (j['vocab'] as List).cast<String>(),
         eos = j['eos'] as int,
         unk = j['unk'] as int,
