@@ -356,6 +356,12 @@ class _SettingsSheetState extends State<SettingsSheet> {
       if (s.mode == TurnMode.scroll)
         _SettledSlider(label: 'Sayfalar arası boşluk', value: s.scrollGap, min: 0, max: 40, suffix: ' px', onEnd: (v) => s.update((x) => x.scrollGap = v)),
       if (s.mode != TurnMode.scroll) ...[
+        Heading('Sayfa düzeni'),
+        Segmented<SpreadMode>(
+          value: s.spreadMode,
+          options: const {SpreadMode.auto: 'Otomatik', SpreadMode.one: 'Tek sayfa', SpreadMode.two: 'Çift sayfa'},
+          onChanged: (v) => s.update((x) => x.spreadMode = v),
+        ),
         const SizedBox(height: 14),
         OutlinedButton(
           onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ZoneEditor())),

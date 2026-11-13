@@ -430,8 +430,64 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   /// A webtoon: most pages are strips more than twice as tall as wide. It always scrolls, with no gap between strips.
   bool _strip = false;
   bool get _scrolling => settings.mode == TurnMode.scroll || _strip;
-  int get _step => _spreadActive ? 2 : 1;
+  int get _step => _spreadActive ? _endOf(_spreadAt(_page)) - _page : 1;
   int get _count => _source?.pageCount ?? 0;
+
+  /// Where each spread starts, worked out again only when the pages or the pairing change.
+  List<int> get _starts {
+    final key = (_count, _source?.pageSizes);
+    if (key != _startsKey) {
+      _startsKey = key;
+      _startsList = spreadStarts(_count, _source?.pageSizes);
+    }
+    return _startsList;
+  }
+
+  Object? _startsKey;
+  List<int> _startsList = const [];
+  int _spreadAt(int page) => spreadIndex(_starts, page);
+  int _endOf(int k) => k + 1 < _starts.length ? _starts[k + 1] : _count;
+
+  /// A comic page wider than tall, shown alone across both halves of a spread.
+  bool _isWide(int i) {
+    final sizes = _source?.pageSizes;
+    return _spreadActive && sizes != null && i >= 0 && i < sizes.length && sizes[i].width > sizes[i].height;
+  }
+
+  /// Spread [k] as two pictures in reading order: a lone page sits beside blank paper, a wide one is cut in two.
+  (ui.Image?, ui.Image?) _halves(int k) {
+    if (k < 0 || k >= _starts.length) return (_blank, _blank);
+    final a = _starts[k];
+    if (_endOf(k) - a == 2) return (_img(a), _img(a + 1));
+    if (!_isWide(a)) return a == 0 ? (_blank, _img(a)) : (_img(a), _blank);
+    final img = _img(a);
+    if (img == null) return (null, null);
+    final (l, r) = _halvesOf[img] ??= (_cut(img, 0), _cut(img, 1));
+    return widget.book.rtl ? (r, l) : (l, r);
+  }
+
+  /// ponytail: the halves go with the garbage collector, like the strip tiles.
+  final _halvesOf = Expando<(ui.Image, ui.Image)>();
+
+  ui.Image _cut(ui.Image img, int half) {
+    final w = img.width ~/ 2, h = img.height.toDouble();
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder).drawImageRect(img, Rect.fromLTWH(half * w.toDouble(), 0, w.toDouble(), h), Rect.fromLTWH(0, 0, w.toDouble(), h), Paint());
+    final picture = recorder.endRecording();
+    final out = picture.toImageSync(w, img.height);
+    picture.dispose();
+    return out;
+  }
+
+  /// The page under [at] and the point on it; null over the blank paper beside a lone page.
+  (int, Offset)? _pageUnder(Offset at, Size size) {
+    if (!_spreadActive || _isWide(_page)) return (_page, at);
+    final half = size.width / 2, right = at.dx >= half;
+    // Right to left, the first half of a spread is the right one.
+    final first = right == widget.book.rtl;
+    final index = _step == 2 ? (first ? _page : _page + 1) : ((_page == 0) != first ? _page : -1);
+    return index < 0 ? null : (index, right ? at - Offset(half, 0) : at);
+  }
 
   /// Lays the book out again when the page size, the style or the reflow switch has changed.
   Future<void> _ensureLayout(Size page, PageStyle style) async {
@@ -534,7 +590,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     });
   }
 
-  int _align(int page) => _spreadActive ? page - page % 2 : page;
+  int _align(int page) => _spreadActive && _count > 0 ? _starts[_spreadAt(page)] : page;
 
   void _remember() {
     widget.book
@@ -679,8 +735,11 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       );
     }
     if (!s.actualBook) return;
-    final foldAtRight = _spreadActive && index.isEven;
-    final foldW = r.width * 0.16;
+    // The spine is right of the first page of a spread, left of the second; mirrored right to left.
+    final k = index < 0 ? -1 : _spreadAt(index);
+    final first = _spreadActive && k >= 0 && (_endOf(k) - _starts[k] == 2 ? index == _starts[k] : index != 0);
+    final foldAtRight = _spreadActive && first != widget.book.rtl;
+    final foldW = _isWide(index) ? 0.0 : r.width * 0.16; // a wide page has its own spine
     final foldRect = foldAtRight
         ? Rect.fromLTWH(r.right - foldW, 0, foldW, r.height)
         : Rect.fromLTWH(0, 0, foldW, r.height);
@@ -729,10 +788,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     final base = _page + from * _step;
     final ui.Image? front, back, under, left;
     if (_spreadActive) {
-      left = _img(base);
-      front = _img(base + 1);
-      back = _img(base + 2);
-      under = _img(base + 3);
+      final k = _spreadAt(_page) + from;
+      (left, front) = _halves(k);
+      (back, under) = _halves(k + 1);
     } else {
       left = _blank;
       front = _img(base);
@@ -753,7 +811,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     _active = DateTime.now();
     stats.addPage();
     _dropSharp();
-    setState(() => _page = (_page + dir * _step).clamp(0, max(0, _count - 1)));
+    setState(() => _page = _spreadActive
+        ? _starts[(_spreadAt(_page) + dir).clamp(0, _starts.length - 1)]
+        : (_page + dir).clamp(0, max(0, _count - 1)));
     if (_panelsOn) _enterPanels(dir);
     _remember();
     _renderWindow(_generation);
@@ -790,8 +850,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   /// A tap on a picture opens it, unless the picture is the whole page: a comic page must keep its tap zones.
   bool _openPictureAt(Offset at, Size size) {
-    final right = _spreadActive && at.dx >= size.width / 2;
-    return _openPicture(right ? _page + 1 : _page, Offset(right ? at.dx - size.width / 2 : at.dx, at.dy), right ? Offset(_pageSize!.width, 0) : Offset.zero);
+    final hit = _pageUnder(at, size);
+    return hit != null && _openPicture(hit.$1, hit.$2, at - hit.$2);
   }
 
   bool _openPicture(int index, Offset inPage, Offset pageOrigin) {
@@ -852,13 +912,16 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   double get _fraction => _count == 0 ? 0 : _page / _count;
-  bool get _bookmarked => widget.book.bookmarks.any((b) => (b - _fraction).abs() < 0.5 / max(_count, 1));
+  bool get _bookmarked => widget.book.bookmarks.any(_onScreenNow);
+
+  /// A bookmark on any page now on screen, so a spread finds one set on either of its pages.
+  bool _onScreenNow(double b) => (b * _count).round() >= _page && (b * _count).round() < _page + max(_step, 1);
 
   void _toggleBookmark() {
     HapticFeedback.lightImpact();
     setState(() {
       if (_bookmarked) {
-        widget.book.bookmarks.removeWhere((b) => (b - _fraction).abs() < 0.5 / max(_count, 1));
+        widget.book.bookmarks.removeWhere(_onScreenNow);
       } else {
         widget.book.bookmarks.add(_fraction);
       }
@@ -880,6 +943,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   /// Page [i]'s size. Scrolling, a picture page keeps its own shape, fitted to the width.
   Size _sizeOf(int i) {
     final page = _pageSize!, sizes = _source?.pageSizes;
+    if (_isWide(i)) return Size(page.width * 2, page.height);
     if (!_scrolling || sizes == null || i < 0 || i >= sizes.length) return page;
     // Whole device pixels, so no half-painted row of paper shows between strips.
     final dpr = MediaQuery.devicePixelRatioOf(context);
@@ -952,7 +1016,11 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
           type: MaterialType.transparency,
           child: LayoutBuilder(builder: (context, box) {
             final screen = box.biggest;
-            _spread = screen.width > screen.height && screen.width >= 600;
+            _spread = switch (settings.spreadMode) {
+              SpreadMode.one => false,
+              SpreadMode.two => true,
+              SpreadMode.auto => screen.width > screen.height && screen.width >= 600,
+            };
             final inset = filters ? _bookInset(screen) : EdgeInsets.zero;
             _inset = inset;
             final book = inset.deflateSize(screen);
@@ -1169,9 +1237,12 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     }
 
     Widget withBadges(int i) => Stack(fit: StackFit.expand, children: [one(i), _marksLayer(i), _spokenHighlight(i), ..._badges(i)]);
-    return _spreadActive
-        ? Row(textDirection: widget.book.rtl ? TextDirection.rtl : TextDirection.ltr, children: [Expanded(child: withBadges(_page)), Expanded(child: withBadges(_page + 1))])
-        : withBadges(_page);
+    if (!_spreadActive || _isWide(_page)) return withBadges(_page);
+    final pair = _step == 2;
+    return Row(textDirection: widget.book.rtl ? TextDirection.rtl : TextDirection.ltr, children: [
+      Expanded(child: pair || _page != 0 ? withBadges(_page) : one(-1)),
+      Expanded(child: pair ? withBadges(_page + 1) : (_page == 0 ? withBadges(_page) : one(-1))),
+    ]);
   }
 
   /// The sentence being read, and the word in it marked like a highlighter pen.
@@ -1545,11 +1616,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   void _onLongPress(Offset at, Size size) {
     if (_menu) return;
-    final spread = _spreadActive, half = size.width / 2;
-    final right = spread && at.dx >= half;
-    // Right to left, the first page of a spread is the right one.
-    final index = spread && right != widget.book.rtl ? _page + 1 : _page;
-    _textAt(index, right ? at - Offset(half, 0) : at);
+    final hit = _pageUnder(at, size);
+    if (hit != null) _textAt(hit.$1, hit.$2);
   }
 
   List<ProcessTextAction>? _lookups;

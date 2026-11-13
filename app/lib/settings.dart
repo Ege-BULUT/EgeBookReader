@@ -17,6 +17,9 @@ enum TurnMode { flip, tap, scroll }
 
 enum ColorizeMode { off, onDemand, auto }
 
+/// Two pages side by side: automatic in landscape on a wide screen, or always one, or always two.
+enum SpreadMode { auto, one, two }
+
 enum VoiceSource { system, model, api }
 
 /// Colours of one theme in one brightness. Contrast is worked out in memory/research/fonts-design.md.
@@ -201,6 +204,7 @@ class Settings extends ChangeNotifier {
 
   bool _wasDark = false;
   TurnMode mode = TurnMode.flip;
+  SpreadMode spreadMode = SpreadMode.auto;
   double scrollGap = 2;
   double fontSize = 18;
   double lineHeight = 1.5;
@@ -316,6 +320,7 @@ class Settings extends ChangeNotifier {
       nightFrom = j['nightFrom'] as int? ?? nightFrom;
       nightTo = j['nightTo'] as int? ?? nightTo;
       mode = TurnMode.values.byName(j['mode'] as String);
+      spreadMode = SpreadMode.values.asNameMap()[j['spreadMode']] ?? SpreadMode.auto;
       scrollGap = (j['scrollGap'] as num).toDouble();
       fontSize = (j['fontSize'] as num).toDouble();
       lineHeight = (j['lineHeight'] as num).toDouble();
@@ -384,6 +389,7 @@ class Settings extends ChangeNotifier {
       'nightFrom': nightFrom,
       'nightTo': nightTo,
       'mode': mode.name,
+      'spreadMode': spreadMode.name,
       'scrollGap': scrollGap,
       'fontSize': fontSize,
       'lineHeight': lineHeight,
