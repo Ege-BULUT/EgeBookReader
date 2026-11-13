@@ -224,4 +224,4 @@ that names the old one.
   - the range sheet: words, estimates, progress;
   - 1.5x without a stop.
 - Two bugs found on the emulator and fixed: speed baked into the key, which made any speed change look like a catch-up; and the system voice list was not filtered when the book's language was unknown, and it offered network voices.
-- Voice cloning spike: Supertonic, then OpenVoice v2's converter exported to int8 ONNX. Combined RTF is about 0.29 on 2 M1 threads, an extra 34 MB download, and speaker similarity rises from 0.57 to 0.82. Files are in the session scratchpad `voiceclone/` (export script `scripts/export_onnx.py`).
+- Voice cloning spike: Supertonic, then OpenVoice v2's converter exported to int8 ONNX. Combined RTF is about 0.29 on 2 M1 threads, an extra 34 MB download, and speaker similarity rises from 0.57 to 0.82. The spike scripts are kept in `research/voiceclone/` (`export_onnx.py` makes the int8 ONNX); the models and wavs were in the session scratchpad only.

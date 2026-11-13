@@ -1,0 +1,4 @@
+TEXT = {
+ "tr": "Kasabanın kenarındaki eski konak, yıllardır kimsenin uğramadığı derin bir sessizliğe gömülmüştü. Bahçedeki ceviz ağacı her sonbahar yapraklarını dökerken, paslı demir kapı rüzgârda hafifçe gıcırdardı. Bir akşam, yağmurun ardından, üst kattaki pencerelerden birinde titrek bir ışık belirdi. Köylüler önce gözlerine inanamadılar; sonra yaşlı öğretmen, elinde fenerle, yokuşu tek başına tırmanmaya karar verdi. Kapıyı çaldığında içeriden tanıdık bir ses yanıt verdi.",
+ "en": "The old house at the edge of the village had stood empty for as long as anyone could remember. Every autumn the walnut tree in the garden shed its leaves, and the rusty iron gate creaked softly in the wind. One evening, after the rain, a faint light flickered in an upstairs window. The villagers could hardly believe their eyes, so the old schoolteacher took a lantern and climbed the hill alone.",
+}
