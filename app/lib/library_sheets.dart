@@ -31,6 +31,21 @@ List<Book> sortBooks(List<Book> books, SortBy by, bool descending) {
   return [for (final k in keyed) k.$2];
 }
 
+/// A section per series, in the order first met, its books by number; books in no series together.
+Map<String, List<Book>> seriesSections(List<Book> books) {
+  final out = <String, List<Book>>{};
+  for (final b in books) {
+    (out[b.info['series'] ?? tr('Seride değil')] ??= []).add(b);
+  }
+  for (final l in out.values) {
+    l.sort((x, y) => volumeOf(x).compareTo(volumeOf(y)));
+  }
+  return out;
+}
+
+/// What the library search looks through, folded: the title, the shorter details and the tags.
+String searchText(Book b) => foldForSearch([b.title, ...b.info.values.where((v) => v.length < 200), ...b.tags].join('\n'));
+
 /// The book's number in its series, for ordering; books without one go after.
 double volumeOf(Book b) => double.tryParse(RegExp(r'\d+(\.\d+)?').firstMatch(b.info['volume'] ?? '')?.group(0) ?? '') ?? 1e6;
 

@@ -182,6 +182,46 @@ class _SettingsSheetState extends State<SettingsSheet> {
         if (_backupBusy) SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2, color: s.palette.accent)),
       ]),
       if (_backupNote != null) Text(_backupNote!, style: TextStyle(color: s.palette.ink, fontSize: 13)),
+      Heading('Otomatik yedek'),
+      Text(tr('Uygulama arka plana geçtiğinde, son yedek seçilen süreden eskiyse kitaplık bu klasöre yedeklenir; son 3 yedek kalır. Google Drive klasörü de olur: seçicide Drive\'ı aç. Yeni telefonda bu klasörden geri yüklenir.'),
+          style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),
+      const SizedBox(height: 8),
+      Segmented<int>(
+        value: s.backupDays,
+        options: const {0: 'Kapalı', 1: 'Günlük', 7: 'Haftalık'},
+        onChanged: (v) async {
+          if (v > 0 && s.backupFolder == null && await pickBackupFolder() == null) return;
+          s.update((x) => x.backupDays = v);
+        },
+      ),
+      if (s.backupFolder case final f?)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(Uri.decodeComponent(f.split('/').last).replaceFirst('primary:', ''),
+              style: TextStyle(color: s.palette.ink, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+      if (s.lastBackup > 0)
+        Text('${tr('Son yedek')}: ${DateTime.fromMillisecondsSinceEpoch(s.lastBackup).toString().substring(0, 16)}',
+            style: TextStyle(color: s.palette.muted, fontSize: 13)),
+      Row(children: [
+        TextButton(onPressed: _backupBusy ? null : pickBackupFolder, child: Text(tr(s.backupFolder == null ? 'Klasör seç' : 'Başka klasör seç'))),
+        if (s.backupFolder != null)
+          TextButton(
+            onPressed: _backupBusy
+                ? null
+                : () async {
+                    setState(() => _backupBusy = true);
+                    final done = await autoBackup(now: true);
+                    if (mounted) {
+                      setState(() {
+                        _backupBusy = false;
+                        _backupNote = tr(done ? 'Yedek kaydedildi.' : 'Yedek alınamadı.');
+                      });
+                    }
+                  },
+            child: Text(tr('Şimdi yedekle')),
+          ),
+      ]),
       Heading('Hata günlüğü'),
       Text(tr('Uygulamanın karşılaştığı hatalar yalnızca bu cihazda tutulur. Bir sorunu bildirirken kaydedip gönderebilirsin.'),
           style: TextStyle(color: s.palette.muted, fontSize: 13, height: 1.35)),

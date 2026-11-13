@@ -15,7 +15,7 @@ import 'colorize.dart';
 import 'fonts.dart';
 import 'gallery.dart';
 import 'incoming.dart';
-import 'backup.dart' show logError;
+import 'backup.dart' show autoBackup, logError, pickBackupFolder, restoreFromFolder;
 import 'library_sheets.dart';
 import 'l10n.dart';
 import 'onboarding.dart';
@@ -58,7 +58,14 @@ Future<void> main() async {
     stats.flush();
   }
 
-  AppLifecycleListener(onPause: flush, onDetach: flush, onResume: checkWatchedFolder);
+  AppLifecycleListener(
+    onPause: () {
+      flush();
+      autoBackup();
+    },
+    onDetach: flush,
+    onResume: checkWatchedFolder,
+  );
   device.setMethodCallHandler((call) async {
     if (call.method != 'open') return readerCalls?.call(call);
     final a = call.arguments as Map<dynamic, dynamic>;
@@ -243,12 +250,29 @@ class Library extends ChangeNotifier {
   File get _lists => File(p.join(_dir.path, 'lists.json'));
   static const _samples = {'Dunyanin Dilleri.epub', 'Sayfa Örneği.pdf', 'Renklendirme Denemesi.epub'};
 
+  /// Books the library lists whose files are not on this phone, as written: a library Android restored onto a new
+  /// phone without its books. Written back unchanged, so nothing is lost, until a backup brings the files back.
+  final missing = <Map<String, dynamic>>[];
+
+  /// [path] under this phone's app folder, when the folder itself moved (a new phone, another user) and the file is there.
+  String? _rehome(String? path) {
+    if (path == null || File(path).existsSync()) return path;
+    final here = p.join(_dir.path, p.basename(p.dirname(path)), p.basename(path));
+    return File(here).existsSync() ? here : path;
+  }
+
   Future<void> load() async {
     _dir = await getApplicationDocumentsDirectory();
     if (_index.existsSync()) {
       try {
-        final list = jsonDecode(_index.readAsStringSync()) as List<dynamic>;
-        books.addAll(list.map((e) => Book.fromJson(e as Map<String, dynamic>)).where((b) => File(b.path).existsSync()));
+        for (final j in (jsonDecode(_index.readAsStringSync()) as List<dynamic>).cast<Map<String, dynamic>>()) {
+          final path = _rehome(j['path'] as String)!;
+          if (!File(path).existsSync()) {
+            missing.add(j);
+            continue;
+          }
+          books.add(Book.fromJson({...j, 'path': path, 'cover': _rehome(j['cover'] as String?), 'customCover': _rehome(j['customCover'] as String?)}));
+        }
       } on FormatException {
         // Before 0.1.9 a write cut short could leave it empty; the books themselves are found again below.
         _index.renameSync('${_index.path}.broken');
@@ -312,8 +336,14 @@ class Library extends ChangeNotifier {
   Future<void> flush() async {
     _saving?.cancel();
     _saving = null;
-    writeWhole(_index, jsonEncode(books));
+    writeWhole(_index, jsonEncode([...books, ...missing]));
     writeWhole(_lists, jsonEncode(listNames));
+  }
+
+  /// Lets go of the books whose files never came back.
+  void forgetMissing() {
+    missing.clear();
+    save();
   }
 
   bool _filling = false;
@@ -324,9 +354,12 @@ class Library extends ChangeNotifier {
     if (_filling) return;
     _filling = true;
     try {
-      for (Book? b; (b = books.where((b) => !b.metaRead).firstOrNull) != null;) {
-        await readOwnMeta(b!);
+      // The shelf is sorted again on every change shown; in a big library that is too often to do per book.
+      var n = 0;
+      for (final b in books.where((b) => !b.metaRead).toList()) {
+        await readOwnMeta(b, show: ++n % 25 == 0); // one removed meanwhile is read for nothing, harmlessly
       }
+      if (n > 0) notifyListeners();
       while (settings.onlineLookup) {
         final b = books.where((b) => !b.looked && !_samples.contains(p.basename(b.path))).firstOrNull;
         if (b == null || !await lookUp(b)) break;
@@ -337,12 +370,12 @@ class Library extends ChangeNotifier {
   }
 
   /// Fills [b] from what its file says, without overwriting anything already there.
-  Future<void> readOwnMeta(Book b) async {
+  Future<void> readOwnMeta(Book b, {bool show = true}) async {
     final m = await readMeta(b.path);
     b.metaRead = true;
     _take(b, m, replace: false);
     if (m.rtl) b.rtl = true;
-    changed();
+    show ? changed() : save();
   }
 
   /// Looks [b] up online with its search text. [replace] lets what is found replace the categories. False when it could not ask.
@@ -581,6 +614,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
     library.fillIn();
     openRequest.addListener(_openRequested);
     WidgetsBinding.instance.addPostFrameCallback((_) => _openRequested());
+    if (library.missing.isNotEmpty) WidgetsBinding.instance.addPostFrameCallback((_) => _offerRestore());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!motionOn(context, settings)) {
@@ -638,6 +672,33 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
     } finally {
       if (mounted) setState(() => _importing = false);
     }
+  }
+
+  /// A library Android brought back onto a new phone lists books whose files did not come with it.
+  Future<void> _offerRestore() async {
+    final c = settings.palette;
+    final answer = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: c.paper,
+        content: Text(tr('Kitaplar bu telefonda yok. Yedek klasöründen geri yükle?'), style: TextStyle(color: c.ink, fontSize: 16, height: 1.35)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, 'forget'), child: Text(tr('Unut'))),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('Sonra'))),
+          TextButton(onPressed: () => Navigator.pop(context, 'restore'), child: Text(tr('Geri yükle'))),
+        ],
+      ),
+    );
+    if (answer == 'forget') return library.forgetMissing();
+    if (answer != 'restore') return;
+    final folder = await pickBackupFolder();
+    if (folder == null || !mounted) return;
+    setState(() => _importing = true);
+    final added = await restoreFromFolder(folder);
+    if (!mounted) return;
+    setState(() => _importing = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(added == null ? tr('Bu klasörde okunabilen yedek yok.') : '${tr('Yedekten eklenen kitap')}: $added')));
   }
 
   void _openRequested() {
@@ -715,7 +776,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
       _folded.clear();
       _foldedAt = library.revision;
     }
-    return _folded[b] ??= foldForSearch([b.title, ...b.info.values.where((v) => v.length < 200), ...b.tags].join('\n'));
+    return _folded[b] ??= searchText(b);
   }
 
   bool _matches(Book b) =>
@@ -821,12 +882,7 @@ class _LibraryScreenState extends State<LibraryScreen> with TickerProviderStateM
           for (final k in _sections(_shownBooks)) tr(k): sortBooks(_shownBooks.where((b) => b.shelves.contains(k)).toList(), SortBy.title, false),
         },
       // A section per series, its books by number; books in no series after them.
-      SortBy.series => {
-          for (final b in _shownBooks) b.info['series'] ?? tr('Seride değil'): [
-            for (final x in _shownBooks)
-              if ((x.info['series'] ?? tr('Seride değil')) == (b.info['series'] ?? tr('Seride değil'))) x,
-          ]..sort((x, y) => volumeOf(x).compareTo(volumeOf(y))),
-        },
+      SortBy.series => seriesSections(_shownBooks),
       _ => const {},
     };
     return _shownBooks;

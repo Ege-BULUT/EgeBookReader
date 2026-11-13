@@ -10,7 +10,9 @@
         </intent>
     </queries>
     <application
-        android:allowBackup="false"
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:label="EgeBookReader"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

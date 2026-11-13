@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto Backup up to Android 11: the small files only. app_flutter is Flutter's documents folder.
+     With a list of includes nothing else goes: book files, covers, voices, models, fonts and caches stay out and
+     come back from the automatic backup folder instead. Highlights and notes live in library.json. -->
+<full-backup-content>
+    <include domain="root" path="app_flutter/library.json"/>
+    <include domain="root" path="app_flutter/lists.json"/>
+    <include domain="root" path="app_flutter/settings.json"/>
+    <include domain="root" path="app_flutter/stats.json"/>
+    <include domain="root" path="app_flutter/samples-added.txt"/>
+</full-backup-content>

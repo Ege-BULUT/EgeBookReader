@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 and later: the same small files as backup_rules.xml, to the cloud and to a new phone. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="root" path="app_flutter/library.json"/>
+        <include domain="root" path="app_flutter/lists.json"/>
+        <include domain="root" path="app_flutter/settings.json"/>
+        <include domain="root" path="app_flutter/stats.json"/>
+        <include domain="root" path="app_flutter/samples-added.txt"/>
+    </cloud-backup>
+    <device-transfer>
+        <include domain="root" path="app_flutter/library.json"/>
+        <include domain="root" path="app_flutter/lists.json"/>
+        <include domain="root" path="app_flutter/settings.json"/>
+        <include domain="root" path="app_flutter/stats.json"/>
+        <include domain="root" path="app_flutter/samples-added.txt"/>
+    </device-transfer>
+</data-extraction-rules>
