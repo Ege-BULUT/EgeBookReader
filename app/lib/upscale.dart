@@ -23,8 +23,8 @@ const upscaleModel = ColorModel(
   sizeText: '2,5 MB',
   license: 'BSD-3-Clause, Xintao Wang',
   source: 'https://github.com/xinntao/Real-ESRGAN',
-  url: 'https://github.com/Ege-BULUT/EgeBookReader/releases/download/models-v1/realesr-animevideov3.onnx',
-  file: 'upscale/realesr-animevideov3.onnx',
+  url: 'https://github.com/Ege-BULUT/EgeBookReader/releases/download/models-v1/realesr-animevideov3-x4.onnx',
+  file: 'upscale/realesr-animevideov3-x4.onnx',
   side: 128,
   version: 'esr1',
 );

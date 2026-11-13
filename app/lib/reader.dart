@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'backup.dart' show saveFileAs;
+import 'balloons.dart';
 
 import 'colorize.dart';
 import 'curl.dart';
@@ -363,6 +364,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     colorizer.clearQueue();
     upscaler.onDone = null;
     upscaler.clearQueue();
+    balloonReader.close();
     if (readerCalls == _onVolume) readerCalls = null;
     _volume.invokeMethod('setEnabled', false);
     _volume.invokeMethod('setReading', false);
@@ -1246,7 +1248,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       return img == null ? const SizedBox.expand() : RawImage(image: img, fit: BoxFit.fill);
     }
 
-    Widget withBadges(int i) => Stack(fit: StackFit.expand, children: [one(i), _marksLayer(i), _spokenHighlight(i), ..._badges(i)]);
+    Widget withBadges(int i) => Stack(fit: StackFit.expand, children: [one(i), _marksLayer(i), _spokenHighlight(i), ..._badges(i), _balloonLayer(i)]);
     if (!_spreadActive || _isWide(_page)) return withBadges(_page);
     final pair = _step == 2;
     return Row(textDirection: widget.book.rtl ? TextDirection.rtl : TextDirection.ltr, children: [
@@ -1627,7 +1629,78 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   void _onLongPress(Offset at, Size size) {
     if (_menu) return;
     final hit = _pageUnder(at, size);
-    if (hit != null) _textAt(hit.$1, hit.$2);
+    if (hit == null) return;
+    // A comic page has no text to pick: a long press reads and translates its balloons instead.
+    _isComic ? _translateBalloons([hit.$1]) : _textAt(hit.$1, hit.$2);
+  }
+
+  // ---- speech balloons ------------------------------------------------------------------------------------
+
+  bool get _isComic => _source?.pageSizes != null;
+  final _balloons = <int, List<Balloon>>{};
+  final _readingBalloons = <int>{};
+  bool _balloonOriginals = false;
+
+  void _say(String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+
+  /// Finds, reads and translates the balloons on [pages], one page after another.
+  Future<void> _translateBalloons(Iterable<int> pages) async {
+    final from = balloonLanguage(settings.balloonFrom, widget.book.info['language']), to = uiLanguage;
+    final missing = balloonReader.missing(from, to);
+    if (missing != null) return _say(missing);
+    for (final i in pages) {
+      if (_balloons.containsKey(i) || !_readingBalloons.add(i)) continue;
+      setState(() => _balloonOriginals = false);
+      try {
+        final images = await _source!.imagesOn(i, _sizeOf(i));
+        final found = images.isEmpty ? <Balloon>[] : await balloonReader.read(await images.first.bytes(), from, to);
+        if (!mounted) return;
+        _balloons[i] = found;
+        if (found.isEmpty) _say(tr('Bu sayfada okunacak balon bulunamadı.'));
+      } catch (e) {
+        debugPrint('balloons failed: $e');
+        if (mounted) _say(tr('Balonlar okunamadı.'));
+      }
+      _readingBalloons.remove(i);
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// The translations laid over the balloons of page [i], and a switch back to the original.
+  Widget _balloonLayer(int i) {
+    final c = settings.palette;
+    final list = _balloons[i];
+    final picture = _pageImages[i]?.firstOrNull?.rect;
+    Widget chip(String text, {VoidCallback? onTap, bool busy = false}) => Positioned(
+          top: 8,
+          left: 8,
+          child: Material(
+            color: c.paper.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (busy) ...[SizedBox.square(dimension: 12, child: CircularProgressIndicator(strokeWidth: 1.6, color: c.accent)), const SizedBox(width: 8)],
+                  Text(text, style: TextStyle(color: c.ink, fontSize: 13)),
+                ]),
+              ),
+            ),
+          ),
+        );
+    if (_readingBalloons.contains(i)) return Stack(children: [chip(tr('Balonlar okunuyor…'), busy: true)]);
+    if (list == null || list.isEmpty || picture == null) return const SizedBox.shrink();
+    return Stack(children: [
+      if (!_balloonOriginals)
+        for (final b in list)
+          Positioned.fromRect(
+            rect: Rect.fromLTWH(picture.left + b.rect.left * picture.width, picture.top + b.rect.top * picture.height, b.rect.width * picture.width, b.rect.height * picture.height),
+            child: IgnorePointer(child: BalloonText(b.translated)),
+          ),
+      chip(tr(_balloonOriginals ? 'Çeviriyi göster' : 'Orijinali göster'), onTap: () => setState(() => _balloonOriginals = !_balloonOriginals)),
+    ]);
   }
 
   List<ProcessTextAction>? _lookups;
@@ -2056,6 +2129,15 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: fg, fontSize: 15, fontWeight: FontWeight.w500)),
                 ),
+                if (_isComic)
+                  IconButton(
+                    tooltip: tr('Balonları çevir'),
+                    icon: Icon(Icons.translate, color: fg, size: 22),
+                    onPressed: () {
+                      _toggleMenu();
+                      _translateBalloons([for (var i = _page; i < _page + _step; i++) i]);
+                    },
+                  ),
                 if (_canPanel)
                   IconButton(
                     tooltip: tr(settings.panels ? 'Sayfa sayfa oku' : 'Panel panel oku'),

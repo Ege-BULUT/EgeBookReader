@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import 'backup.dart';
 import 'incoming.dart' show importFolder;
+import 'balloons.dart';
 import 'colorize.dart';
 import 'upscale.dart';
 import 'fonts.dart';
@@ -569,7 +570,64 @@ extension on _SettingsSheetState {
             ]),
           ]),
         ),
+      Heading('Balon çevirisi'),
+      _SubLabel('Çizgi roman sayfasına uzun bas ya da menüdeki çeviri düğmesine dokun. Balonlar telefonda, internetsiz okunur ve çevrilir.'),
+      _SubLabel(balloonLimits),
+      Segmented<String>(
+        value: s.balloonFrom,
+        options: const {'auto': 'Kitabın dili', 'en': 'İngilizce', 'ja': 'Japonca'},
+        onChanged: (v) => s.update((x) => x.balloonFrom = v),
+      ),
+      const SizedBox(height: 12),
+      for (final pack in balloonPacks) Padding(padding: const EdgeInsets.only(bottom: 10), child: ModelPackCard(pack: pack)),
     ];
+  }
+}
+
+/// Download or delete the files that one step of balloon translation needs.
+class ModelPackCard extends StatelessWidget {
+  const ModelPackCard({super.key, required this.pack});
+  final ModelPack pack;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = settings.palette;
+    final installed = pack.parts.every(colorizer.isInstalled);
+    final busy = colorizer.downloads.containsKey(pack.id);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(6)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(pack.name, style: TextStyle(color: c.ink, fontSize: 16, fontWeight: FontWeight.w500))),
+          Text(pack.sizeText, style: TextStyle(color: c.muted, fontSize: 13)),
+        ]),
+        const SizedBox(height: 4),
+        Text('${tr(pack.description)} ${tr('Lisans')}: ${pack.license}.', style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+        const SizedBox(height: 2),
+        SelectableText(pack.source, style: TextStyle(color: c.muted, fontSize: 12)),
+        const SizedBox(height: 8),
+        if (busy)
+          LinearProgressIndicator(value: colorizer.downloads[pack.id], minHeight: 3, color: c.accent, backgroundColor: c.line)
+        else if (!installed)
+          FilledButton(
+            onPressed: () async {
+              for (final part in pack.parts) {
+                if (!colorizer.isInstalled(part)) await colorizer.downloadModel(part);
+                if (colorizer.error != null) return;
+              }
+            },
+            style: FilledButton.styleFrom(backgroundColor: c.accent, foregroundColor: c.paper),
+            child: Text(tr('İndir')),
+          )
+        else
+          TextButton(
+            onPressed: () => colorizer.removeModel(pack.parts.first),
+            style: TextButton.styleFrom(foregroundColor: c.muted, padding: EdgeInsets.zero),
+            child: Text(tr('Sil')),
+          ),
+      ]),
+    );
   }
 }
 

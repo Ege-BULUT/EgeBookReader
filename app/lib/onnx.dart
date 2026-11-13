@@ -26,10 +26,10 @@ class OnnxInput {
 }
 
 class _Job {
-  _Job(this.inputs, this.output, this.outputLength, this.reply);
+  _Job(this.inputs, this.output, this.outputLength, this.skip, this.reply);
   final List<OnnxInput> inputs;
   final String output;
-  final int outputLength;
+  final int outputLength, skip;
   final SendPort reply;
 }
 
@@ -96,7 +96,7 @@ void _main((String, int, SendPort) start) {
       }
       check(run(session, nullptr, names, tensors, n, outName, 1, result));
       check(tensorData(result.value, pointer));
-      job.reply.send(Float32List.fromList(pointer.value.cast<Float>().asTypedList(job.outputLength)));
+      job.reply.send(Float32List.fromList((pointer.value.cast<Float>() + job.skip).asTypedList(job.outputLength)));
       releaseValue(result.value);
     } catch (e) {
       job.reply.send('$e');
@@ -127,9 +127,10 @@ class OnnxModel {
     return OnnxModel._(isolate, await ready.first as SendPort);
   }
 
-  Future<Float32List> run(List<OnnxInput> inputs, String output, int outputLength) async {
+  /// [outputLength] floats of [output], after the first [skip] of them.
+  Future<Float32List> run(List<OnnxInput> inputs, String output, int outputLength, {int skip = 0}) async {
     final reply = ReceivePort();
-    _jobs.send(_Job(inputs, output, outputLength, reply.sendPort));
+    _jobs.send(_Job(inputs, output, outputLength, skip, reply.sendPort));
     final result = await reply.first;
     reply.close();
     if (result is String) throw StateError(result);

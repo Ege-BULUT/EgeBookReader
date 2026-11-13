@@ -233,6 +233,9 @@ class Settings extends ChangeNotifier {
   double imageSaturation = 1, imageContrast = 1, imageSharpen = 0;
   bool imageUpscale = false;
   bool aiUpscale = false;
+
+  /// The language comic balloons are read in: 'auto' takes the book's, else 'en' or 'ja'.
+  String balloonFrom = 'auto';
   ColorizeMode colorizeMode = ColorizeMode.onDemand;
   int autoColorizePages = 3;
   String colorModelId = 'manga';
@@ -350,6 +353,7 @@ class Settings extends ChangeNotifier {
       imageSharpen = (j['imageSharpen'] as num?)?.toDouble() ?? 0;
       imageUpscale = j['imageUpscale'] as bool? ?? false;
       aiUpscale = j['aiUpscale'] as bool? ?? false;
+      balloonFrom = j['balloonFrom'] as String? ?? 'auto';
       colorizeMode = ColorizeMode.values.byName(j['colorizeMode'] as String? ?? 'onDemand');
       autoColorizePages = j['autoColorizePages'] as int? ?? 3;
       colorModelId = j['colorModelId'] as String? ?? 'manga';
@@ -420,6 +424,7 @@ class Settings extends ChangeNotifier {
       'imageSharpen': imageSharpen,
       'imageUpscale': imageUpscale,
       'aiUpscale': aiUpscale,
+      'balloonFrom': balloonFrom,
       'colorizeMode': colorizeMode.name,
       'autoColorizePages': autoColorizePages,
       'colorModelId': colorModelId,
