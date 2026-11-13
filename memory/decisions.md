@@ -225,3 +225,19 @@ that names the old one.
   - 1.5x without a stop.
 - Two bugs found on the emulator and fixed: speed baked into the key, which made any speed change look like a catch-up; and the system voice list was not filtered when the book's language was unknown, and it offered network voices.
 - Voice cloning spike: Supertonic, then OpenVoice v2's converter exported to int8 ONNX. Combined RTF is about 0.29 on 2 M1 threads, an extra 34 MB download, and speaker similarity rises from 0.57 to 0.82. The spike scripts are kept in `research/voiceclone/` (`export_onnx.py` makes the int8 ONNX); the models and wavs were in the session scratchpad only.
+
+## 2026-11-13 D25 Road to 1.0, and no server ever
+
+- The user said on 2026-11-13 that the project is fully local and serverless. No backend will ever be built. The only hosting is the free Vercel site and its free add-ons.
+- So:
+  - "about the author" and "about the book" come straight from public APIs (Wikipedia, Open Library) on the device, cached, with attribution;
+  - a new phone gets its library back from a backup in a folder the reader picks (a Drive folder works through the system picker) and from Android Auto Backup, not from an account of ours;
+  - models download from GitHub releases.
+- Picked for the plan:
+  - in-book search;
+  - natural offline voices;
+  - an audiobook player laid out like Spotify's now-playing screen (cover, title, author, words as lyrics, about the author and the book, favourites, listening shelves);
+  - comic spreads, upscaling, and balloon OCR with offline translation;
+  - e-ink mode;
+  - the reliability list: migration tests with automatic backup, surviving a new phone, unattended end-to-end tests, and performance limits.
+- They are recorded in ROADMAP.md and in openlead as M14–M18 and T-0002 to T-0015.
