@@ -81,6 +81,16 @@ Most readers show you a document. This one tries to give you a book.
     <td align="center"><sub>Highlights and notes</sub></td>
     <td align="center"><sub>A bookshelf on the home screen</sub></td>
   </tr>
+  <tr>
+    <td><img src="docs/assets/player.jpg" alt="The full-screen player with the cover, a seek bar and the words being read"></td>
+    <td><img src="docs/assets/search.jpg" alt="A search result opened on its page, the matched word marked"></td>
+    <td><img src="docs/assets/eink.jpg" alt="A page in E-ink mode, black on white"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>The audiobook player</sub></td>
+    <td align="center"><sub>Search inside a book</sub></td>
+    <td align="center"><sub>E-ink mode</sub></td>
+  </tr>
 </table>
 
 <p align="center">

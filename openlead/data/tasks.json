@@ -68,7 +68,7 @@
       "id": "T-0002",
       "title": "Full-text search inside a book",
       "description": "Search every page's text; hits with context; jump to a hit. EPUB, PDF, and every text format.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "high",
       "tag": "reader",
       "milestone": "M14",
@@ -77,7 +77,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:12",
       "comments": [],
       "log": [
         {
@@ -85,6 +85,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=high"
+        },
+        {
+          "ts": "2026-11-13T12:25:12",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -93,7 +99,7 @@
       "id": "T-0003",
       "title": "Antalia-2 Mini and Ahenk Cep Turkish voices",
       "description": "Custom ONNX Runtime path plus the Turkish text normaliser (research/tts.md §0.2).",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "medium",
       "tag": "tts",
       "milestone": "M15",
@@ -102,7 +108,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:12",
       "comments": [],
       "log": [
         {
@@ -110,6 +116,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=medium"
+        },
+        {
+          "ts": "2026-11-13T12:25:12",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -118,7 +130,7 @@
       "id": "T-0004",
       "title": "Voice cloning on the phone",
       "description": "Record about 30 s, embed once, convert each voiced sentence with OpenVoice v2's converter (int8 ONNX). Consent check for anyone else's voice. Spike scripts: memory/research/voiceclone/.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "medium",
       "tag": "tts",
       "milestone": "M15",
@@ -127,7 +139,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:12",
       "comments": [],
       "log": [
         {
@@ -135,6 +147,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=medium"
+        },
+        {
+          "ts": "2026-11-13T12:25:12",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -143,7 +161,7 @@
       "id": "T-0005",
       "title": "Release automatic voicing",
       "description": "Built and checked on the emulator (commit 80d82e7); waits for the user's listening test on a phone.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "medium",
       "tag": "tts",
       "milestone": "M15",
@@ -152,7 +170,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:13",
       "comments": [],
       "log": [
         {
@@ -160,6 +178,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=medium"
+        },
+        {
+          "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -168,7 +192,7 @@
       "id": "T-0006",
       "title": "Audiobook player screen",
       "description": "Now-playing screen like Spotify's: cover, title, author, the words being read scrolling like lyrics, about the author and about the book from Wikipedia and Open Library (cached, with attribution), favourites, listening shelves.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "medium",
       "tag": "player",
       "milestone": "M16",
@@ -177,7 +201,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:13",
       "comments": [],
       "log": [
         {
@@ -185,6 +209,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=medium"
+        },
+        {
+          "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -193,7 +223,7 @@
       "id": "T-0007",
       "title": "Audiobook files matched to the ebook",
       "description": "m4b and mp3 chapters; align audio to text so the words follow.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "low",
       "tag": "player",
       "milestone": "M16",
@@ -202,7 +232,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:13",
       "comments": [],
       "log": [
         {
@@ -210,6 +240,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=low"
+        },
+        {
+          "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -218,7 +254,7 @@
       "id": "T-0008",
       "title": "Two-page spreads",
       "description": "",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "medium",
       "tag": "comics",
       "milestone": "M13",
@@ -227,7 +263,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:13",
       "comments": [],
       "log": [
         {
@@ -235,6 +271,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=medium"
+        },
+        {
+          "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -243,7 +285,7 @@
       "id": "T-0009",
       "title": "Upscale low-resolution scans",
       "description": "On-device super-resolution through the existing ONNX path; licence must be permissive.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "medium",
       "tag": "comics",
       "milestone": "M13",
@@ -252,7 +294,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:13",
       "comments": [],
       "log": [
         {
@@ -260,6 +302,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=medium"
+        },
+        {
+          "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -268,7 +316,7 @@
       "id": "T-0010",
       "title": "Speech balloons: find, read, translate offline",
       "description": "Balloon detection, OCR and offline translation on the phone; permissive licences only.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "low",
       "tag": "comics",
       "milestone": "M13",
@@ -277,14 +325,33 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
-      "comments": [],
+      "updatedAt": "2026-11-13T12:25:15",
+      "comments": [
+        {
+          "author": "egebookreader",
+          "role": "engineer",
+          "date": "2026-11-13T12:25:15",
+          "text": "Shipped in 0.5.0. Known limits: narrow balloons misread, sound effects not read, stacked captions merged; the upscaler flattens screentone."
+        }
+      ],
       "log": [
         {
           "ts": "2026-11-13T11:04:00",
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=low"
+        },
+        {
+          "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
+        },
+        {
+          "ts": "2026-11-13T12:25:15",
+          "actor": "egebookreader",
+          "event": "comment",
+          "detail": "Shipped in 0.5.0. Known limits: narrow balloons misread, sound effects not read,…"
         }
       ],
       "sessions": []
@@ -293,7 +360,7 @@
       "id": "T-0011",
       "title": "E-ink mode",
       "description": "",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "low",
       "tag": "reader",
       "milestone": "M17",
@@ -302,7 +369,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:13",
       "comments": [],
       "log": [
         {
@@ -310,6 +377,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=low"
+        },
+        {
+          "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -318,7 +391,7 @@
       "id": "T-0012",
       "title": "Migration tests for every older library file",
       "description": "Keep sample library.json/settings.json from each release in test fixtures; each release must open them all.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "high",
       "tag": "reliability",
       "milestone": "M18",
@@ -327,7 +400,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:13",
       "comments": [],
       "log": [
         {
@@ -335,6 +408,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=high"
+        },
+        {
+          "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -343,7 +422,7 @@
       "id": "T-0013",
       "title": "Automatic backup and surviving a new phone",
       "description": "Scheduled .ebrbackup to a folder the reader picks (a Drive folder works through the system picker); Android Auto Backup for library and settings. No server.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "high",
       "tag": "reliability",
       "milestone": "M18",
@@ -352,7 +431,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:13",
       "comments": [],
       "log": [
         {
@@ -360,6 +439,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=high"
+        },
+        {
+          "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -368,7 +453,7 @@
       "id": "T-0014",
       "title": "End-to-end tests on the emulator",
       "description": "Open a book, turn pages, read aloud, import; run before every release without a person.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "medium",
       "tag": "reliability",
       "milestone": "M18",
@@ -377,7 +462,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:13",
       "comments": [],
       "log": [
         {
@@ -385,6 +470,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=medium"
+        },
+        {
+          "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
@@ -393,7 +484,7 @@
       "id": "T-0015",
       "title": "Performance limits",
       "description": "10,000-book library, 2,000-page PDF, an old 3 GB phone: start time, scrolling, memory.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "medium",
       "tag": "reliability",
       "milestone": "M18",
@@ -402,7 +493,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-13T11:04:00",
-      "updatedAt": "2026-11-13T11:04:00",
+      "updatedAt": "2026-11-13T12:25:13",
       "comments": [],
       "log": [
         {
@@ -410,6 +501,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=medium"
+        },
+        {
+          "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
