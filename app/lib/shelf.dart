@@ -97,10 +97,13 @@ String turkishLower(String s) => s.replaceAll('I', 'ı').replaceAll('İ', 'i').t
 /// A key that puts names in Turkish alphabetical order (c, ç, d … s, ş, t …), other accented letters next to their plain
 /// letter, and digits and signs before letters.
 // ponytail: one alphabet for every language; per-language collation (ICU) if readers ask for it.
-String sortKey(String s) => String.fromCharCodes(turkishLower(s).split('').map((ch) {
-      final i = _alphabet.indexOf(_plain[ch] ?? ch);
-      return i >= 0 ? 0x1000 + i * 2 + (_plain.containsKey(ch) ? 1 : 0) : ch.codeUnitAt(0);
-    }));
+String sortKey(String s) => String.fromCharCodes([for (final c in turkishLower(s).codeUnits) _keyOf[c] ?? c]);
+
+/// Each letter's place in [sortKey], worked out once: a big library sorts thousands of names at a time.
+final _keyOf = <int, int>{
+  for (final (i, ch) in _alphabet.split('').indexed) ch.codeUnitAt(0): 0x1000 + i * 2,
+  for (final MapEntry(:key, :value) in _plain.entries) key.codeUnitAt(0): 0x1000 + _alphabet.indexOf(value) * 2 + 1,
+};
 
 /// Text folded for search: Turkish lower case with accents dropped, so "sef" finds "Şef" and "istanbul" finds "İstanbul".
 String foldForSearch(String s) => foldWithMap(s).$1;

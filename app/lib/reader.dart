@@ -1293,6 +1293,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       top: 0,
       right: inset.right + 18,
       child: GestureDetector(
+        key: const ValueKey('bookmark'),
         behavior: HitTestBehavior.translucent,
         onTap: _menu || set ? _toggleBookmark : null,
         child: SizedBox(

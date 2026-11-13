@@ -57,6 +57,24 @@ class MainActivity : FlutterActivity() {
         return found
     }
 
+    /** Copies a file into a folder the reader picked (an automatic backup), then deletes the old files Dart named. */
+    private fun writeToTree(args: Map<*, *>) {
+        val tree = android.net.Uri.parse(args["tree"] as String)
+        val folder = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, android.provider.DocumentsContract.getTreeDocumentId(tree))
+        val doc = android.provider.DocumentsContract.createDocument(contentResolver, folder, "application/octet-stream", args["name"] as String)
+            ?: throw java.io.IOException("could not create ${args["name"]}")
+        try {
+            contentResolver.openOutputStream(doc)!!.use { out -> java.io.File(args["path"] as String).inputStream().use { it.copyTo(out) } }
+        } catch (e: Exception) {
+            runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, doc) }
+            throw e
+        }
+        // Only once the new one is whole; an old one that will not go is left, never worth failing the backup over.
+        for (old in args["delete"] as List<*>) {
+            runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, android.net.Uri.parse(old as String)) }
+        }
+    }
+
     private fun updateSpeechService(args: Map<*, *>) {
         val service = Intent(this, ReadingService::class.java)
         if (args["active"] != true) {
@@ -131,6 +149,10 @@ class MainActivity : FlutterActivity() {
                             }
                             to.path
                         }
+                    }
+                    "writeToTree" -> {
+                        val args = call.arguments as Map<*, *>
+                        inBackground(result) { writeToTree(args); null }
                     }
                     "saveDocument" -> {
                         val args = call.arguments as Map<*, *>
@@ -248,8 +270,10 @@ class MainActivity : FlutterActivity() {
             pendingFolder = null
             val uri = data?.data
             if (resultCode != RESULT_OK || uri == null) return result.success(null)
-            // Kept across restarts, so new books in the folder can be picked up later.
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // Kept across restarts, so new books in the folder can be picked up later and backups written there.
+            contentResolver.takePersistableUriPermission(
+                uri, data!!.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION),
+            )
             return result.success(uri.toString())
         }
         if (requestCode != SAVE_DOCUMENT) return

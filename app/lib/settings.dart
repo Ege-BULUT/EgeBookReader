@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'fonts.dart';
+import 'main.dart' show writeWhole;
 import 'sources.dart';
 import 'zones.dart';
 
@@ -255,6 +256,12 @@ class Settings extends ChangeNotifier {
   /// Per model: seconds to make one character of speech, and seconds it lasts, measured on this phone.
   Map<String, List<double>> voicePace = {};
 
+  /// Automatic backup every [backupDays] days (0 is off) into [backupFolder], a folder picked once; when the last one was
+  /// made, in milliseconds since the epoch.
+  int backupDays = 0;
+  String? backupFolder;
+  int lastBackup = 0;
+
   /// A phone voice picked by name ("name|locale"); null takes the language's default.
   String? systemVoice;
 
@@ -374,6 +381,9 @@ class Settings extends ChangeNotifier {
       };
       systemVoice = j['systemVoice'] as String?;
       einkRefresh = j['einkRefresh'] as int? ?? 5;
+      backupDays = j['backupDays'] as int? ?? 0;
+      backupFolder = j['backupFolder'] as String?;
+      lastBackup = j['lastBackup'] as int? ?? 0;
       if (j['zones'] != null) zones = TapLayout.fromJson(j['zones'] as Map<String, dynamic>);
     } catch (_) {
       // A settings file from another version is not worth stopping the app for.
@@ -383,7 +393,10 @@ class Settings extends ChangeNotifier {
   void update(void Function(Settings) change) {
     change(this);
     notifyListeners();
-    _file.writeAsString(jsonEncode({
+    writeWhole(_file, jsonEncode(toJson()));
+  }
+
+  Map<String, dynamic> toJson() => {
       'theme': theme.name,
       'dark': dark,
       'autoNight': autoNight,
@@ -440,8 +453,10 @@ class Settings extends ChangeNotifier {
       'voicePace': voicePace,
       'systemVoice': systemVoice,
       'einkRefresh': einkRefresh,
-    }));
-  }
+      'backupDays': backupDays,
+      'backupFolder': backupFolder,
+      'lastBackup': lastBackup,
+    };
 
   /// Changes the custom background and measures the result before anything draws with it.
   Future<void> updateCustom(void Function(CustomPaper) change) async {
