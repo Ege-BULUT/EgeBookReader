@@ -8,7 +8,9 @@ import 'package:path/path.dart' as p;
 
 import 'backup.dart';
 import 'incoming.dart' show importFolder;
+import 'balloons.dart';
 import 'colorize.dart';
+import 'upscale.dart';
 import 'fonts.dart';
 import 'l10n.dart';
 import 'main.dart' show Book, library, settings, themeFor;
@@ -407,6 +409,12 @@ class _SettingsSheetState extends State<SettingsSheet> {
       if (s.mode == TurnMode.scroll)
         _SettledSlider(label: 'Sayfalar arası boşluk', value: s.scrollGap, min: 0, max: 40, suffix: ' px', onEnd: (v) => s.update((x) => x.scrollGap = v)),
       if (s.mode != TurnMode.scroll) ...[
+        Heading('Sayfa düzeni'),
+        Segmented<SpreadMode>(
+          value: s.spreadMode,
+          options: const {SpreadMode.auto: 'Otomatik', SpreadMode.one: 'Tek sayfa', SpreadMode.two: 'Çift sayfa'},
+          onChanged: (v) => s.update((x) => x.spreadMode = v),
+        ),
         const SizedBox(height: 14),
         OutlinedButton(
           onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ZoneEditor())),
@@ -673,6 +681,11 @@ extension on _SettingsSheetState {
       _SettledSlider(label: 'Kontrast', value: s.imageContrast, min: 0.6, max: 1.6, percent: true, onEnd: (v) => s.update((x) => x.imageContrast = v)),
       _SettledSlider(label: 'Keskinlik', value: s.imageSharpen, min: 0, max: 1, percent: true, onEnd: (v) => s.update((x) => x.imageSharpen = v)),
       Toggle('Yüksek kaliteli büyütme', s.imageUpscale, (v) => s.update((x) => x.imageUpscale = v)),
+      Toggle('Düşük çözünürlüklü görselleri yapay zekâyla büyüt', s.aiUpscale, (v) => s.update((x) => x.aiUpscale = v)),
+      if (s.aiUpscale) ...[
+        const SizedBox(height: 10),
+        const ColorModelCard(model: upscaleModel, choosable: false),
+      ],
       Heading('Renklendirme'),
       for (final m in colorModels) Padding(padding: const EdgeInsets.only(bottom: 10), child: ColorModelCard(model: m)),
       if (colorizer.error != null) Text(colorizer.error!, style: TextStyle(color: c.accent, fontSize: 13)),
@@ -694,14 +707,74 @@ extension on _SettingsSheetState {
             ]),
           ]),
         ),
+      Heading('Balon çevirisi'),
+      _SubLabel('Çizgi roman sayfasına uzun bas ya da menüdeki çeviri düğmesine dokun. Balonlar telefonda, internetsiz okunur ve çevrilir.'),
+      _SubLabel(balloonLimits),
+      Segmented<String>(
+        value: s.balloonFrom,
+        options: const {'auto': 'Kitabın dili', 'en': 'İngilizce', 'ja': 'Japonca'},
+        onChanged: (v) => s.update((x) => x.balloonFrom = v),
+      ),
+      const SizedBox(height: 12),
+      for (final pack in balloonPacks) Padding(padding: const EdgeInsets.only(bottom: 10), child: ModelPackCard(pack: pack)),
     ];
+  }
+}
+
+/// Download or delete the files that one step of balloon translation needs.
+class ModelPackCard extends StatelessWidget {
+  const ModelPackCard({super.key, required this.pack});
+  final ModelPack pack;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = settings.palette;
+    final installed = pack.parts.every(colorizer.isInstalled);
+    final busy = colorizer.downloads.containsKey(pack.id);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(6)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(pack.name, style: TextStyle(color: c.ink, fontSize: 16, fontWeight: FontWeight.w500))),
+          Text(pack.sizeText, style: TextStyle(color: c.muted, fontSize: 13)),
+        ]),
+        const SizedBox(height: 4),
+        Text('${tr(pack.description)} ${tr('Lisans')}: ${pack.license}.', style: TextStyle(color: c.muted, fontSize: 13, height: 1.35)),
+        const SizedBox(height: 2),
+        SelectableText(pack.source, style: TextStyle(color: c.muted, fontSize: 12)),
+        const SizedBox(height: 8),
+        if (busy)
+          LinearProgressIndicator(value: colorizer.downloads[pack.id], minHeight: 3, color: c.accent, backgroundColor: c.line)
+        else if (!installed)
+          FilledButton(
+            onPressed: () async {
+              for (final part in pack.parts) {
+                if (!colorizer.isInstalled(part)) await colorizer.downloadModel(part);
+                if (colorizer.error != null) return;
+              }
+            },
+            style: FilledButton.styleFrom(backgroundColor: c.accent, foregroundColor: c.paper),
+            child: Text(tr('İndir')),
+          )
+        else
+          TextButton(
+            onPressed: () => colorizer.removeModel(pack.parts.first),
+            style: TextButton.styleFrom(foregroundColor: c.muted, padding: EdgeInsets.zero),
+            child: Text(tr('Sil')),
+          ),
+      ]),
+    );
   }
 }
 
 /// Download, choose or delete one colorizer.
 class ColorModelCard extends StatelessWidget {
-  const ColorModelCard({super.key, required this.model});
+  const ColorModelCard({super.key, required this.model, this.choosable = true});
   final ColorModel model;
+
+  /// False for a model that is not one of the colorizers to choose between.
+  final bool choosable;
 
   @override
   Widget build(BuildContext context) {
@@ -709,7 +782,7 @@ class ColorModelCard extends StatelessWidget {
     final s = settings;
     final c = s.palette;
     final installed = colorizer.isInstalled(m);
-    final selected = colorizer.model?.id == m.id;
+    final selected = choosable && colorizer.model?.id == m.id;
     final busy = colorizer.downloads.containsKey(m.id);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
@@ -739,12 +812,14 @@ class ColorModelCard extends StatelessWidget {
           )
         else
           Row(children: [
-            TextButton(
-              onPressed: () => s.update((x) => x.colorModelId = m.id),
-              style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero),
-              child: Text(tr(selected ? 'Seçili' : 'Seç')),
-            ),
-            const SizedBox(width: 16),
+            if (choosable) ...[
+              TextButton(
+                onPressed: () => s.update((x) => x.colorModelId = m.id),
+                style: TextButton.styleFrom(foregroundColor: c.accent, padding: EdgeInsets.zero),
+                child: Text(tr(selected ? 'Seçili' : 'Seç')),
+              ),
+              const SizedBox(width: 16),
+            ],
             TextButton(
               onPressed: () => colorizer.removeModel(m),
               style: TextButton.styleFrom(foregroundColor: c.muted, padding: EdgeInsets.zero),

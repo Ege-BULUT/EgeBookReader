@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -178,9 +179,10 @@ class _Job {
   final SendPort reply;
 }
 
-void _main((String, SendPort) start) {
-  final (path, ready) = start;
-  final session = OnnxSession(path);
+void _main((String, int, SendPort) start) {
+  final (path, threads, ready) = start;
+  // A test on a computer can point this at its own ONNX Runtime.
+  final session = OnnxSession(path, threads: threads, library: Platform.environment['EBR_ONNXRUNTIME'] ?? defaultOnnxLibrary);
   final jobs = ReceivePort();
   ready.send(jobs.sendPort);
   jobs.listen((message) {
@@ -199,19 +201,20 @@ class OnnxModel {
   final Isolate _isolate;
   final SendPort _jobs;
 
-  static Future<OnnxModel> open(String path) async {
+  static Future<OnnxModel> open(String path, {int threads = 3}) async {
     final ready = ReceivePort();
-    final isolate = await Isolate.spawn(_main, (path, ready.sendPort));
+    final isolate = await Isolate.spawn(_main, (path, threads, ready.sendPort));
     return OnnxModel._(isolate, await ready.first as SendPort);
   }
 
-  Future<Float32List> run(List<OnnxInput> inputs, String output, int outputLength) async {
+  /// [outputLength] floats of [output], after the first [skip] of them.
+  Future<Float32List> run(List<OnnxInput> inputs, String output, int outputLength, {int skip = 0}) async {
     final reply = ReceivePort();
     _jobs.send(_Job(inputs, output, reply.sendPort));
     final result = await reply.first;
     reply.close();
     if (result is String) throw StateError(result);
-    return Float32List.sublistView(result as Float32List, 0, outputLength);
+    return Float32List.sublistView(result as Float32List, skip, skip + outputLength);
   }
 
   void close() => _isolate.kill(priority: Isolate.immediate);

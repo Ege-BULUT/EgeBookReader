@@ -19,6 +19,9 @@ enum TurnMode { flip, tap, scroll }
 
 enum ColorizeMode { off, onDemand, auto }
 
+/// Two pages side by side: automatic in landscape on a wide screen, or always one, or always two.
+enum SpreadMode { auto, one, two }
+
 enum VoiceSource { system, model, api }
 
 /// Colours of one theme in one brightness. Contrast is worked out in memory/research/fonts-design.md.
@@ -171,19 +174,17 @@ enum SortBy {
   bool get newestFirst => index < 3 || this == rating;
 }
 
-const appVersion = '0.2.0';
+const appVersion = '0.5.0';
 
 /// What is new in [appVersion], shown once after an update.
 const whatsNew = [
-  'Kitaplara 1-5 yıldız puan; favoriler artık kalp. Seriler cilt sırasıyla gruplanır.',
-  'Son eklenenler rafı ve ana ekran için kitaplık rafı (son 3 ya da son 5 kitap, sesli okuma düğmesiyle).',
-  'Vurgular, notlar ve sözlük: metinde bir kelimeye uzun bas. Alıntıyı görsel olarak paylaş.',
-  'Sesli okuma: kilit ekranından ve kulaklıktan kontrol, müzik kapanmaz kısılır, kulaklık çıkınca durur.',
-  'Bilgisayardan Wi-Fi ile, bir klasörden ya da Calibre kitaplığından kitap al; izlenen klasöre konan kitaplar kendiliğinden gelir.',
-  'Çizgi romanlarda panel panel okuma.',
-  'Okuma istatistikleri, günlük hedef, bölümde ve kitapta kalan süre.',
-  'Saate göre koyu tema, sol kenarda kaydırarak parlaklık, kapağın renginde üst çubuk.',
-  'Kitaplıkta çoklu seçim; hata günlüğünü kaydedip gönderebilirsin.',
+  'Kitapta arama: büyüteçe dokun, her sonuç cümlesiyle gelir; dokununca sayfası açılır, kelime işaretli.',
+  'Önden seslendirme: telefon ilerideki sayfaları internetsiz, yormadan seslendirir; istersen bir sayfa aralığını baştan hazırla.',
+  'Doğal Türkçe sesler (Antalia-2 Mini, Ahenk Cep) ve kendi sesin: 30 saniye oku, kitap senin sesinle okunsun.',
+  "Sesli kitap çalar: kapak, akan metin, Vikipedi'den yazar ve kitap bilgisi, dinleme rafları. Kendi mp3 ya da m4b dosyan sayfaları izler.",
+  'Çizgi roman: çift sayfa görünümü, küçük taramaları yapay zekâyla büyütme, konuşma balonlarını telefonda okuyup çevirme.',
+  'E-mürekkep modu: birkaç sayfada bir tam ekran yenileme, net gri görseller, animasyonsuz ekranlar.',
+  'Otomatik yedek seçtiğin klasöre; yeni telefonda kitaplık kaybolmaz, yedekten geri gelir.',
 ];
 
 class Settings extends ChangeNotifier {
@@ -203,6 +204,7 @@ class Settings extends ChangeNotifier {
 
   bool _wasDark = false;
   TurnMode mode = TurnMode.flip;
+  SpreadMode spreadMode = SpreadMode.auto;
   double scrollGap = 2;
   double fontSize = 18;
   double lineHeight = 1.5;
@@ -230,6 +232,10 @@ class Settings extends ChangeNotifier {
   String seenVersion = appVersion;
   double imageSaturation = 1, imageContrast = 1, imageSharpen = 0;
   bool imageUpscale = false;
+  bool aiUpscale = false;
+
+  /// The language comic balloons are read in: 'auto' takes the book's, else 'en' or 'ja'.
+  String balloonFrom = 'auto';
   ColorizeMode colorizeMode = ColorizeMode.onDemand;
   int autoColorizePages = 3;
   String colorModelId = 'manga';
@@ -313,6 +319,7 @@ class Settings extends ChangeNotifier {
         imageContrast: isEink ? max(imageContrast, 1.25) : imageContrast,
         imageSharpen: imageSharpen,
         imageUpscale: imageUpscale,
+        aiUpscale: aiUpscale,
       );
 
   late final File _file;
@@ -335,6 +342,7 @@ class Settings extends ChangeNotifier {
       nightFrom = j['nightFrom'] as int? ?? nightFrom;
       nightTo = j['nightTo'] as int? ?? nightTo;
       mode = TurnMode.values.byName(j['mode'] as String);
+      spreadMode = SpreadMode.values.asNameMap()[j['spreadMode']] ?? SpreadMode.auto;
       scrollGap = (j['scrollGap'] as num).toDouble();
       fontSize = (j['fontSize'] as num).toDouble();
       lineHeight = (j['lineHeight'] as num).toDouble();
@@ -361,6 +369,8 @@ class Settings extends ChangeNotifier {
       imageContrast = (j['imageContrast'] as num?)?.toDouble() ?? 1;
       imageSharpen = (j['imageSharpen'] as num?)?.toDouble() ?? 0;
       imageUpscale = j['imageUpscale'] as bool? ?? false;
+      aiUpscale = j['aiUpscale'] as bool? ?? false;
+      balloonFrom = j['balloonFrom'] as String? ?? 'auto';
       colorizeMode = ColorizeMode.values.byName(j['colorizeMode'] as String? ?? 'onDemand');
       autoColorizePages = j['autoColorizePages'] as int? ?? 3;
       colorModelId = j['colorModelId'] as String? ?? 'manga';
@@ -417,6 +427,7 @@ class Settings extends ChangeNotifier {
       'nightFrom': nightFrom,
       'nightTo': nightTo,
       'mode': mode.name,
+      'spreadMode': spreadMode.name,
       'scrollGap': scrollGap,
       'fontSize': fontSize,
       'lineHeight': lineHeight,
@@ -443,6 +454,8 @@ class Settings extends ChangeNotifier {
       'imageContrast': imageContrast,
       'imageSharpen': imageSharpen,
       'imageUpscale': imageUpscale,
+      'aiUpscale': aiUpscale,
+      'balloonFrom': balloonFrom,
       'colorizeMode': colorizeMode.name,
       'autoColorizePages': autoColorizePages,
       'colorModelId': colorModelId,

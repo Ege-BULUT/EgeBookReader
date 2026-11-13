@@ -125,7 +125,8 @@ Done on the phone with the two downloadable models. Lines and lettering are unto
 - **Favourites, your own lists, categories and tags.** A book can sit in several categories and lists. Long-press a book to change any of them, or to set your own cover picture (and go back to the original).
 - **Search** the shelf by title, author, publisher or tag; Turkish letters and accents match without typing them ("ornegi" finds "Örneği").
 - **Grid or list.** The list shows each book's cover, author and progress in one row.
-- **Backup** in Settings, Library: the whole library (books, progress, bookmarks, tags, lists, covers) in one file saved where you choose. Restoring adds what is missing and leaves what is already there.
+- **Backup** in Settings, Library: the whole library (books, progress, bookmarks, tags, lists, listening shelves, covers, audiobook files) in one file saved where you choose. Restoring adds what is missing and leaves what is already there.
+- **Automatic backup**, daily or weekly, into a folder you pick once (a Google Drive folder works). The three newest are kept. On a new phone Android's own backup brings the library's records back, and the app offers to restore the books from your newest backup.
 - **Sort and filter** from the bar above the shelf: by last read, date added, publication date (newest or oldest first), or title, author or publisher (A to Z or Z to A, in Turkish alphabetical order), or in sections by category. The filter sheet narrows by reading status, category, tag, format and language.
 - **Book details** are read from the file when a book is added: title, author, publisher, date, language, ISBN, series, description and subjects, from EPUB, PDF, MOBI/AZW3, FB2, DOCX, ODT, HTML, Markdown, RTF and ComicInfo.xml in comics. A manga that says it reads right to left opens that way.
 - **Find online** looks the book up on Open Library and suggests a category, tags and missing details. The search text starts as the title and author and can be edited, with a button to put it back. It runs by itself for new books unless switched off in Settings, Library; only the search text is sent.
@@ -138,9 +139,11 @@ Done on the phone with the two downloadable models. Lines and lettering are unto
 - **Tap zones.** Draw rectangles and circles on the screen and give each one a job: previous, next, menu, bookmark. Portrait and landscape have separate layouts.
 - **Right to left** for manga, set per book. The page lifts from the left edge, the left side of the screen turns forward, two-page spreads read right to left, and the page bar runs from the right.
 - **Panel by panel** for comics: the panel button zooms from one panel to the next, in reading order (right to left for manga).
+- **Two-page spreads** for comics: Automatic (in landscape), Single or Double. The cover and wide pages stand alone; a wide page spans both halves.
 - **Webtoons** scroll as one long strip: a comic whose pages are mostly taller than twice their width always scrolls, fitted to the width with no gap. In Scroll mode every comic and DjVu page keeps its own shape.
 - **Endless vertical scroll**, with an adjustable gap between pages (2 px by default).
 - **Volume keys** turn pages in every mode, and can be inverted.
+- **Search inside a book** with the magnifier: every match with its sentence, found the way the library search finds ("sef" finds "Şef"). Tap one to open its page with the word marked.
 - **Pinch to zoom.** Two fingers always zoom and one finger always turns, decided the moment the second finger lands. Zoomed pages are redrawn sharp.
 
 ### Formats
@@ -155,7 +158,7 @@ DRM-protected books are not opened; the app says so. PDFs have a reflow switch, 
 
 ### Themes and type
 
-- **Paper, Parchment, OLED, E-ink and Custom**, each in light and dark. E-ink turns off every animation, gradient and texture.
+- **Paper, Parchment, OLED, E-ink and Custom**, each in light and dark. E-ink turns off every animation, gradient and texture, shows pictures in crisp grey, and refreshes the whole screen every few page turns to clear ghosting. It is picked by itself on the first start on an Onyx Boox, Kobo, PocketBook or similar reader.
 - **Your own background:** a colour or a picture, with an overlay, brightness and blur. Text colour is measured against it and the background softens by itself until the text reaches 4.5:1 contrast.
 - **About 2,100 free fonts** with live previews, filtered by style and script. Add your own from a file or a URL.
 - **Flawless scripts.** Text is shaped with its language, so Turkish keeps the dot on its i, and Chinese, Hindi, Russian and Arabic set correctly.
@@ -169,6 +172,8 @@ DRM-protected books are not opened; the app says so. PDFs have a reflow switch, 
 - **Colorize automatically:** the first pages when a book opens, the rest one by one in the background, resting between pictures and pausing when the phone is warm or saving battery.
 - **Tap a picture** to open it over a dimmed page, zoom in and switch its colour.
 - **Gallery** of everything coloured, with the book and page under each picture.
+- **AI upscaling** for small scans: Real-ESRGAN enlarges pictures shown larger than their real size, a tile at a time, in the background.
+- **Speech balloons translated** on the phone: long-press a comic page (or use the translate button) and each balloon is read (PP-OCRv5) and translated (Opus-MT), English to Turkish and Japanese to English or Turkish, laid over the original. "Show original" switches back.
 
 ### Read aloud
 
@@ -178,6 +183,16 @@ DRM-protected books are not opened; the app says so. PDFs have a reflow switch, 
 - Keeps reading with the screen off or another app in front. Pause, resume and stop from the notification, the lock screen or headphone buttons. Music is turned down under the voice instead of drowning it, and unplugging headphones pauses it.
 - The system voice is the default. Each downloadable voice lists its languages, license and source.
 - Any service with an OpenAI-style `/audio/speech` endpoint works with your own key.
+- **Voiced ahead, offline.** With automatic voicing on, the phone voices the pages ahead with a model voice in the background, resting between sentences and slowing down when it is warm, so listening never waits. Or pick a range of pages (50 to 150, say) and see the words, the time to prepare and the time to listen before you start. If listening catches up, a sheet lets you switch voice or turn the voice off.
+- **Natural Turkish voices**: Antalia-2 Mini and Ahenk Cep, offline, with numbers, dates and abbreviations read out in Turkish.
+- **Your own voice**: read a text aloud for about 30 seconds and a converter (OpenVoice v2) makes any model voice sound like you. Only a short voice print is kept; the recording is deleted.
+
+### Audiobook player
+
+- Tap the reading bar's cover for a full-screen player: the cover, the title and author, the words scrolling like lyrics with the current one marked, a seek bar, speed and a heart for favourites.
+- About the author and about the book, from Wikipedia (in your language, then the book's, then English) or Open Library, only while online lookups are on.
+- **Listening shelves**, like playlists: put books on a shelf in the order you want and press Listen; the next book starts when one ends.
+- **Your own audiobook**: attach an mp3, m4a or m4b to a book. Its chapters are read from the file and the pages follow the audio.
 
 ### Notes and highlights
 
@@ -190,7 +205,7 @@ The time left in the chapter and the book, learnt from your own pace. Dark pages
 
 ## Downloadable models
 
-Nothing here ships in the app. Each model comes from its authors' own release when you ask for it.
+Nothing here ships in the app. Each model comes from its authors' own release when you ask for it, or, where we converted it for phones, from this project's [models-v1](https://github.com/Ege-BULUT/EgeBookReader/releases/tag/models-v1) release.
 
 | Model | Purpose | Download | License | Source |
 |-|-|-|-|-|
@@ -198,6 +213,12 @@ Nothing here ships in the app. Each model comes from its authors' own release wh
 | DDColor | Photographs | 206 MB | Apache-2.0 | [piddnad/DDColor](https://github.com/piddnad/DDColor) |
 | Supertonic 3 | 10 voices, 31 languages including Turkish | 122 MB | MIT code, OpenRAIL-M model | [Supertone](https://github.com/supertone-oss-archive/supertonic) |
 | Kokoro 1.1 | 103 voices, English and Chinese | 140 MB | Apache-2.0 | [hexgrad](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh) |
+| Antalia-2 Mini | Turkish voice | see app | Apache-2.0 | [cloud0day3](https://huggingface.co/spaces/cloud0day3/antalia-mini) |
+| Ahenk Cep | Turkish voice | see app | CC BY 4.0 (Özgür Güler) | [ozgurguler](https://huggingface.co/ozgurguler/ahenk-cep-tr) |
+| OpenVoice v2 converter | Your own voice | 35 MB | MIT | [myshell-ai/OpenVoice](https://github.com/myshell-ai/OpenVoice) |
+| Real-ESRGAN animevideov3 | Upscaling scans | 2.5 MB | BSD-3 | [xinntao/Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) |
+| PP-OCRv5 mobile | Reading speech balloons | 5 to 17 MB | Apache-2.0 | [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR), via [RapidOCR](https://github.com/RapidAI/RapidOCR) |
+| Opus-MT | Translating balloons (en-tr, ja-en) | 36 to 110 MB | Apache-2.0 | [Helsinki-NLP](https://huggingface.co/Helsinki-NLP) |
 
 Manga Light Colorizer's license forbids commercial use. EgeBookReader is free and will stay free.
 
@@ -216,7 +237,8 @@ You need [Flutter](https://flutter.dev) 3.47, the Android SDK with the NDK, and 
 ```sh
 git clone https://github.com/Ege-BULUT/EgeBookReader
 cd EgeBookReader/app
-flutter test
+flutter test                     # unit, migration (every earlier release's data) and performance tests
+tool/e2e.sh <emulator AVD name>  # end-to-end, on a running emulator
 flutter build apk --release --split-per-abi --target-platform android-arm64
 ```
 
@@ -236,6 +258,8 @@ memory/         requirements, research and the decisions behind the project
 - DjVu pages are pictures only: no reading aloud, search or table of contents for them yet.
 - PDF reflow leaves pictures out.
 - Colours from any model are a guess: often good, sometimes wrong.
+- Balloon reading misses some narrow balloons and sound effects, and machine translation can get the meaning wrong.
+- The upscaler flattens screentone to grey.
 - A sentence that crosses two pages is read in two parts.
 - Release builds are signed with a development key, so moving to a store build will need one reinstall.
 

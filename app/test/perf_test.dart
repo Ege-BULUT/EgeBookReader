@@ -107,6 +107,9 @@ void main() {
     for (final MapEntry(:key, :value) in took.entries) {
       expect(value, lessThan(limits[key]!), reason: '$key took $value ms');
     }
+    // load() leaves a save waiting; done now, it cannot land in the folder after it is gone.
+    await setup.flush();
+    await lib.flush();
     docs.deleteSync(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 3)));
 }

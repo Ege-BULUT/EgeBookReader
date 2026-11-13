@@ -103,3 +103,28 @@ List<Rect> findPanels(Uint8List rgba, int w, int h, {bool rtl = false}) {
   cut(0, 0, w, h, 0);
   return out.length < 2 || out.length > 24 ? const [] : out;
 }
+
+/// Where each two-page spread starts, in page order. Picture books (with [sizes]) keep the cover alone, and a page
+/// wider than tall alone because it is already a spread; other books pair pages from the first.
+List<int> spreadStarts(int count, List<Size>? sizes) {
+  bool wide(int i) => sizes != null && i < sizes.length && sizes[i].width > sizes[i].height;
+  final starts = <int>[];
+  for (var i = 0; i < count; i += (sizes != null && i == 0) || wide(i) || wide(i + 1) || i + 1 == count ? 1 : 2) {
+    starts.add(i);
+  }
+  return starts;
+}
+
+/// The spread that holds [page]: the last one starting at or before it.
+int spreadIndex(List<int> starts, int page) {
+  var lo = 0, hi = starts.length - 1;
+  while (lo < hi) {
+    final mid = (lo + hi + 1) >> 1;
+    if (starts[mid] <= page) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return lo;
+}
