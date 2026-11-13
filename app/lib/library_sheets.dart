@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'l10n.dart';
 import 'main.dart' show Book, BookCover, library, settings;
 import 'meta.dart';
+import 'player.dart';
 import 'settings.dart';
 import 'shelf.dart';
 
@@ -274,6 +275,13 @@ class _BookSheetState extends State<BookSheet> {
     }
   }
 
+  Future<void> _pickAudio(Book b) async {
+    final ok = await pickAudioFor(b);
+    if (ok == false && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('Sesli kitap için mp3, m4b ya da m4a dosyası seç.'))));
+    }
+  }
+
   Future<void> _pickCover() async {
     final picked = await FilePicker.pickFiles(type: FileType.image);
     final path = picked.firstOrNull?.path;
@@ -374,6 +382,22 @@ class _BookSheetState extends State<BookSheet> {
                   child: Text(tr('Yeni liste'), style: TextStyle(color: c.accent)),
                 ),
               ]),
+            ),
+          ]),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(
+              child: _dropdown('Dinleme rafları', [for (final name in library.shelves.keys) if (library.shelves[name]!.contains(b.path)) name],
+                  shelfItems(context, b)),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextButton.icon(
+                onPressed: b.audio != null ? () => library.detachAudio(b) : () => _pickAudio(b),
+                style: TextButton.styleFrom(foregroundColor: b.audio != null ? c.muted : c.accent),
+                icon: Icon(b.audio != null ? Icons.delete_outline : Icons.audio_file_outlined, size: 18),
+                label: Text(tr(b.audio != null ? 'Sesli kitap dosyasını kaldır' : 'Sesli kitap dosyası seç'), maxLines: 2),
+              ),
             ),
           ]),
           _fold(b.tags.isEmpty ? tr('Etiketler') : '${tr('Etiketler')} · ${b.tags.join(', ')}', [

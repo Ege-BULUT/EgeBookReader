@@ -17,6 +17,7 @@ import 'l10n.dart';
 import 'main.dart';
 import 'motion.dart';
 import 'panels.dart';
+import 'player.dart';
 import 'zones.dart';
 import 'settings.dart';
 import 'settings_sheet.dart';
@@ -99,7 +100,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   /// Counts reading time for the statistics while the reader is in use: a page turned, a tap or the voice.
   late final Timer _clock = Timer.periodic(const Duration(seconds: 15), (_) {
-    if (_ready && _onScreen && (speaker.active || DateTime.now().difference(_active).inMinutes < 5)) stats.addTime(15);
+    if (_ready && _onScreen && (_listening || DateTime.now().difference(_active).inMinutes < 5)) stats.addTime(15);
   });
   DateTime _active = DateTime.now();
   bool _spokeOnOpen = false;
@@ -107,9 +108,18 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   /// The first pages are being voiced before reading aloud starts; the sheet for a caught-up voice is open.
   bool _preparing = false, _catchUpOpen = false;
 
+  /// The now-playing screen over the reader: 0 closed, 1 open, 2 with its lyrics filling it.
+  /// Opened at once when a listening shelf plays on into this book.
+  late int _playerView = widget.speak && library.playing != null ? 1 : 0;
+
+  /// The newest reader. One opened from another (a listening shelf going on to its next book) starts before the old one
+  /// is gone, so only the newest lets go of what readers share: the voice, the player, the service, the keys.
+  static _ReaderScreenState? _newest;
+
   @override
   void initState() {
     super.initState();
+    _newest = this;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     settings.addListener(_settingsChanged);
     library.addListener(_libraryChanged);
@@ -118,6 +128,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     colorizer.addListener(_colorizerChanged);
     speaker.addListener(_speakerChanged);
     speaker.onFinished = _speechReachedPageEnd;
+    audiobook.addListener(_speakerChanged);
+    audiobook.position.addListener(_audioMoved);
+    audiobook.onFinished = _bookEnded;
     WidgetsBinding.instance.addObserver(this);
     _syncVolume();
     _volume.invokeMethod('setReading', true);
@@ -147,6 +160,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   Future<void> _close() async {
     if (_closing) return;
+    library.playing = null; // leaving the book ends a shelf being played
     setState(() {
       _closing = true;
       _menu = false;
@@ -167,6 +181,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   /// Play pressed: with automatic voicing, the first pages are voiced before the voice starts and the rest while it reads.
   Future<void> _startReading() async {
+    if (widget.book.audio case final audio? when File(audio).existsSync()) return _startAudio(audio);
     final model = voices.selected;
     if (settings.autoVoice && settings.voiceSource == VoiceSource.model && model != null && _count > 0) {
       if (_menu) _toggleMenu();
@@ -209,17 +224,174 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     );
   }
 
+  // ---- listening: a voice reading the text, or the book's audiobook file -----------------------------------
+
+  bool get _listening => speaker.active || audiobook.active;
+  bool get _paused => audiobook.active ? audiobook.paused : speaker.paused;
+
+  void _playPause() {
+    if (!_listening) {
+      _startReading();
+    } else if (audiobook.active) {
+      audiobook.paused ? audiobook.resume() : audiobook.pause();
+    } else {
+      speaker.paused ? speaker.resume() : speaker.pause();
+    }
+  }
+
+  void _pause() => audiobook.active ? audiobook.pause() : speaker.pause();
+  void _resume() => audiobook.active ? audiobook.resume() : speaker.resume();
+
+  void _stopListening() {
+    speaker.stop();
+    audiobook.stop();
+  }
+
+  /// A sentence back or on; with a file, ten seconds.
+  void _stepBy(int by) => audiobook.active ? audiobook.seek(audiobook.position.value + Duration(seconds: 10 * by)) : speaker.step(by);
+
+  void _applySpeed() {
+    speaker.applySpeed();
+    if (audiobook.active) audiobook.setRate(settings.ttsSpeed);
+  }
+
+  void _nextSpeed() {
+    const speeds = [0.8, 1.0, 1.2, 1.5, 2.0, 3.0];
+    final next = speeds[(speeds.indexOf(settings.ttsSpeed) + 1) % speeds.length];
+    settings.update((x) => x.ttsSpeed = next);
+    _applySpeed();
+  }
+
+  /// The end of the book was read: on a listening shelf being played the next book opens and reads on.
+  void _bookEnded() {
+    _stopListening();
+    if (library.nextOnShelf(widget.book) case final next?) openRequest.value = (next.path, true);
+  }
+
+  /// Plays the book's audiobook file from the page shown.
+  Future<void> _startAudio(String path) async {
+    if (_menu) _toggleMenu();
+    speaker.stop();
+    if (!await audiobook.open(path) || !mounted) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('Sesli kitap dosyası açılamadı.'))));
+      return;
+    }
+    _audioPage = _page;
+    // A little into the page, so the place found again from the time is this page and not the one before.
+    await audiobook.seek(_audioAt((_page + 0.02) / max(_count, 1)));
+    audiobook.setRate(settings.ttsSpeed);
+    audiobook.resume();
+  }
+
+  Future<void> _pickAudio() async {
+    final ok = await pickAudioFor(widget.book);
+    if (!mounted || ok == null) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('Sesli kitap için mp3, m4b ya da m4a dosyası seç.'))));
+    } else if (_listening) {
+      _startReading(); // the file takes over from the voice
+    }
+  }
+
+  /// The audio and the book paired at their chapters (see [syncAnchors]).
+  (List<double>, List<double>) get _anchors => syncAnchors(audiobook.chapters, audiobook.duration.inMilliseconds / 1000, _parts, _count);
+  double _bookAt(Duration t) => lerpAlong(_anchors.$1, _anchors.$2, t.inMilliseconds / 1000);
+  Duration _audioAt(double fraction) => Duration(milliseconds: (lerpAlong(_anchors.$2, _anchors.$1, fraction) * 1000).round());
+
+  /// The page the file was last heard on. Pages follow the file only when that changes, so the reader can look around.
+  int _audioPage = -1;
+
+  /// The file moved on: when it reaches another page, the book turns to it.
+  void _audioMoved() {
+    if (!audiobook.active || !_ready || _count == 0) return;
+    final target = _align((_bookAt(audiobook.position.value) * _count).floor().clamp(0, _count - 1));
+    if (target == _audioPage || _speechTurning) return;
+    _audioPage = target;
+    if (target == _page) return;
+    if (target == _page + _step && !_scrolling && _onScreen && _curl.currentState != null) {
+      _speechTurning = true;
+      _curl.currentState!.turn(1);
+    } else {
+      _seek(target);
+    }
+  }
+
+  /// The sentences on the pages shown, for the lyrics while a file plays.
+  List<SpokenSentence> _shownLines = const [];
+  int _shownLinesPage = -1;
+
+  /// What the now-playing screen shows now.
+  PlayerNow _now() {
+    final count = max(_count, 1);
+    if (audiobook.active) {
+      if (_shownLinesPage != _page) {
+        final page = _shownLinesPage = _page;
+        _sentencesHere().then((lines) {
+          if (mounted && page == _page) setState(() => _shownLines = lines);
+        });
+      }
+      final at = _bookAt(audiobook.position.value);
+      final lines = _shownLinesPage == _page ? _shownLines : const <SpokenSentence>[];
+      final (line, word) = lines.isEmpty ? (0, 0) : SpeechMap(lines).locate((at * count - _page) / _step);
+      return (
+        at: at,
+        listened: audiobook.position.value,
+        left: audiobook.duration - audiobook.position.value,
+        lines: lines,
+        line: line,
+        word: lines.isEmpty || lines[line].words.isEmpty ? null : lines[line].words[word],
+        paused: audiobook.paused,
+        file: true,
+      );
+    }
+    final at = ((_page + speaker.progress * _step) / count).clamp(0.0, 1.0);
+    // Seconds a page: as learnt for this book, else about 15 letters a second, the pace the voice's marker walks at.
+    var pace = widget.book.secondsPerPage;
+    if (pace == 0) pace = speaker.map.total / 15 / settings.ttsSpeed;
+    return (
+      at: at,
+      listened: Duration(seconds: (at * count * pace).round()),
+      left: Duration(seconds: ((1 - at) * count * pace).round()),
+      lines: speaker.sentences,
+      line: speaker.index,
+      word: speaker.currentWord,
+      paused: !speaker.active || speaker.paused,
+      file: false,
+    );
+  }
+
+  void _seekTo(double fraction) {
+    if (audiobook.active) return unawaited(audiobook.seek(_audioAt(fraction)));
+    _seek((fraction * _count).floor());
+    if (speaker.active) _speakFromHere();
+  }
+
+  Widget _nowPlaying() => NowPlaying(
+        book: widget.book,
+        tint: _tint,
+        ticks: Listenable.merge([speaker, speaker.cursor, audiobook, audiobook.position]),
+        now: _now,
+        lyrics: _playerView == 2,
+        onLyrics: (on) => setState(() => _playerView = on ? 2 : 1),
+        onClose: () => setState(() => _playerView = 0),
+        onSeek: _seekTo,
+        onPlayPause: _playPause,
+        onStep: _stepBy,
+        onSpeed: _nextSpeed,
+        onPickAudio: _pickAudio,
+      );
+
   String? _serviceState;
 
   /// While a book is read aloud a foreground service keeps the app alive with the screen off.
   void _syncSpeechService() {
-    final state = speaker.active ? 'on-${speaker.paused}-${speaker.caughtUp}-$uiLanguage' : 'off';
+    final state = _listening ? 'on-$_paused-${speaker.caughtUp}-$uiLanguage' : 'off';
     if (state == _serviceState) return;
     _serviceState = state;
     _volume.invokeMethod('speechService', {
-      'active': speaker.active,
+      'active': _listening,
       'title': widget.book.title,
-      'paused': speaker.paused,
+      'paused': _paused,
       'labels': [
         tr('Duraklat'),
         tr('Devam et'),
@@ -264,7 +436,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   void _speechReachedPageEnd() {
     if (!mounted) return;
-    if (!_canGo(1)) return speaker.stop();
+    if (!_canGo(1)) return _bookEnded();
     _speechTurning = true;
     if (_scrolling) {
       _seek(_page + 1);
@@ -347,22 +519,29 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   @override
   void dispose() {
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     settings.removeListener(_settingsChanged);
     library.removeListener(_libraryChanged);
     colorizer.removeListener(_colorizerChanged);
     speaker.removeListener(_speakerChanged);
-    speaker.onFinished = null;
-    speaker.stop();
-    voicing.cancel();
+    audiobook.removeListener(_speakerChanged);
+    audiobook.position.removeListener(_audioMoved);
     WidgetsBinding.instance.removeObserver(this);
-    _volume.invokeMethod('speechService', {'active': false});
-    colorizer.onDone = null;
-    colorizer.clearQueue();
-    if (readerCalls == _onVolume) readerCalls = null;
-    _volume.invokeMethod('setEnabled', false);
-    _volume.invokeMethod('setReading', false);
-    _volume.invokeMethod('setBrightness', -1.0);
+    if (_newest == this) {
+      _newest = null;
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      speaker.onFinished = null;
+      speaker.stop();
+      audiobook.onFinished = null;
+      audiobook.stop();
+      voicing.cancel();
+      _volume.invokeMethod('speechService', {'active': false});
+      colorizer.onDone = null;
+      colorizer.clearQueue();
+      readerCalls = null;
+      _volume.invokeMethod('setEnabled', false);
+      _volume.invokeMethod('setReading', false);
+      _volume.invokeMethod('setBrightness', -1.0);
+    }
     _clock.cancel();
     _scroll.dispose();
     _move.dispose();
@@ -384,7 +563,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     if (mounted) setState(() => _error = e is FormatException ? tr(e.message) : '$e');
   }
 
-  void _syncVolume() => _volume.invokeMethod('setEnabled', settings.volumeKeys && !speaker.active);
+  void _syncVolume() => _volume.invokeMethod('setEnabled', settings.volumeKeys && !_listening);
 
   void _libraryChanged() {
     if (mounted) setState(() {});
@@ -399,11 +578,11 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     if (call.method == 'speechAction') {
       switch (call.arguments as String) {
         case 'pause':
-          speaker.pause();
+          _pause();
         case 'resume':
-          speaker.resume();
+          _resume();
         case 'stop':
-          speaker.stop();
+          _stopListening();
       }
       return;
     }
@@ -474,7 +653,10 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       await _source!.prepare(page, style, onProgress: (v) {
         if (mounted && generation == _generation) setState(() => _layoutProgress = v);
       });
-      _chapters = [for (final e in await _source!.tableOfContents()) e.page];
+      final toc = await _source!.tableOfContents();
+      _chapters = [for (final e in toc) e.page];
+      final top = toc.map((e) => e.depth).fold(1 << 20, min);
+      _parts = [for (final e in toc) if (e.depth == top) e.page];
       if (!mounted || generation != _generation) return;
       final start = _startPage;
       _startPage = null;
@@ -759,7 +941,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     _renderWindow(_generation);
     if (_speechTurning || speaker.active) {
       _speechTurning = false;
-      _speakFromHere();
+      if (!audiobook.active) _speakFromHere();
     }
   }
 
@@ -944,7 +1126,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _close();
+        if (didPop) return;
+        _playerView > 0 ? setState(() => _playerView--) : _close();
       },
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         value: c.isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
@@ -1007,6 +1190,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                     ),
                   _speedPanel(c),
                   _ribbon(c, inset),
+                  if (_playerView > 0) Positioned.fill(child: _nowPlaying()),
                 ]),
               ),
               _coverLayer(c, screen),
@@ -1398,6 +1582,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   DateTime _turnedAt = DateTime.now();
   List<int> _chapters = const [];
 
+  /// Where the top-level contents entries start, to pair with an audiobook's chapters.
+  List<int> _parts = const [];
+
   /// A page turned forward: how long it took joins the book's pace. Pauses and skimming do not count.
   void _learnPace() {
     final now = DateTime.now(), took = now.difference(_turnedAt).inMilliseconds / 1000;
@@ -1757,7 +1944,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   /// Opens above the player when its speed button is held.
   Widget _speedPanel(Palette c) {
     final width = MediaQuery.sizeOf(context).width;
-    final on = _speedOpen && speaker.active && !_menu;
+    final on = _speedOpen && _listening && !_menu;
     return Positioned(
       left: width * 0.05,
       width: width * 0.9,
@@ -1780,7 +1967,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                 divisions: 25,
                 onChanged: _setSpeed,
                 onChangeEnd: (_) {
-                  speaker.applySpeed();
+                  _applySpeed();
                   setState(() => _speedOpen = false);
                 },
               ),
@@ -1793,7 +1980,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   /// Bar shown while reading aloud.
   Widget _player(Palette c) {
-    final on = speaker.active && !_menu;
+    final on = _listening && _playerView == 0 && !_menu;
     final d = Duration(milliseconds: settings.isEink ? 1 : 260);
     final pad = MediaQuery.paddingOf(context);
     Widget button(IconData icon, VoidCallback tap, {double size = 24}) =>
@@ -1810,32 +1997,44 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: ValueListenableBuilder<int>(
-              valueListenable: speaker.cursor,
-              builder: (_, _, _) => Slider(
-                value: speaker.progress,
-                onChangeStart: (_) => speaker.beginScrub(),
-                onChanged: speaker.scrubFraction,
-                onChangeEnd: (_) => speaker.endScrub(),
-              ),
+            child: ListenableBuilder(
+              listenable: Listenable.merge([speaker.cursor, audiobook.position]),
+              builder: (_, _) => audiobook.active
+                  // With a file the bar runs through the whole file.
+                  ? Slider(
+                      value: audiobook.duration.inMilliseconds == 0
+                          ? 0
+                          : (audiobook.position.value.inMilliseconds / audiobook.duration.inMilliseconds).clamp(0.0, 1.0),
+                      onChanged: (v) => audiobook.seek(audiobook.duration * v),
+                    )
+                  : Slider(
+                      value: speaker.progress,
+                      onChangeStart: (_) => speaker.beginScrub(),
+                      onChanged: speaker.scrubFraction,
+                      onChangeEnd: (_) => speaker.endScrub(),
+                    ),
             ),
           ),
           Row(children: [
-          const SizedBox(width: 8),
-          _SpeakingBars(color: c.accent, playing: speaker.active && !speaker.paused && !settings.isEink),
+          const SizedBox(width: 4),
+          // The cover opens the now-playing screen.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _playerView = 1),
+            child: Row(children: [
+              SizedBox(width: 26, height: 38, child: BookCover(book: widget.book, ribbon: false)),
+              const SizedBox(width: 8),
+              _SpeakingBars(color: c.accent, playing: _listening && !_paused && !settings.isEink),
+            ]),
+          ),
           const Spacer(),
-          button(Icons.skip_previous_rounded, () => speaker.step(-1)),
-          button(speaker.paused ? Icons.play_arrow_rounded : Icons.pause_rounded, () => speaker.paused ? speaker.resume() : speaker.pause(), size: 30),
-          button(Icons.skip_next_rounded, () => speaker.step(1)),
+          button(audiobook.active ? Icons.replay_10_rounded : Icons.skip_previous_rounded, () => _stepBy(-1)),
+          button(_paused ? Icons.play_arrow_rounded : Icons.pause_rounded, _playPause, size: 30),
+          button(audiobook.active ? Icons.forward_10_rounded : Icons.skip_next_rounded, () => _stepBy(1)),
           const Spacer(),
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () {
-              const speeds = [0.8, 1.0, 1.2, 1.5, 2.0, 3.0];
-              final next = speeds[(speeds.indexOf(settings.ttsSpeed) + 1) % speeds.length];
-              settings.update((x) => x.ttsSpeed = next);
-              speaker.applySpeed();
-            },
+            onTap: _nextSpeed,
             onLongPressStart: (_) {
               HapticFeedback.selectionClick();
               _speedHeld = false;
@@ -1850,7 +2049,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
             },
             onLongPressEnd: (_) {
               if (!_speedHeld) return;
-              speaker.applySpeed();
+              _applySpeed();
               setState(() => _speedOpen = false);
             },
             child: SizedBox(
@@ -1859,7 +2058,13 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
               child: Center(child: Text('${settings.ttsSpeed}x', style: TextStyle(color: c.ink, fontSize: 13))),
             ),
           ),
-          button(Icons.close_rounded, speaker.stop, size: 21),
+          IconButton(
+            tooltip: tr('Şimdi dinleniyor'),
+            onPressed: () => setState(() => _playerView = 1),
+            icon: Icon(Icons.open_in_full_rounded, color: c.ink, size: 20),
+            visualDensity: VisualDensity.compact,
+          ),
+          button(Icons.close_rounded, _stopListening, size: 21),
           ]),
         ]),
       ),

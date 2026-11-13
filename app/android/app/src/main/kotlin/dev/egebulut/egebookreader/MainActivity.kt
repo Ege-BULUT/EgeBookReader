@@ -150,6 +150,15 @@ class MainActivity : FlutterActivity() {
                     "thermal" -> result.success(
                         if (Build.VERSION.SDK_INT >= 29) (getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus else 0,
                     )
+                    // A source link from the now-playing screen, opened in the browser.
+                    "openUrl" -> result.success(
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(call.arguments as String)))
+                            true
+                        } catch (e: android.content.ActivityNotFoundException) {
+                            false
+                        },
+                    )
                     "speechService" -> {
                         updateSpeechService(call.arguments as Map<*, *>)
                         result.success(null)
