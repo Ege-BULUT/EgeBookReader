@@ -49,6 +49,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
   # To give tests a cache folder of their own.
   path_provider_platform_interface: any
   plugin_platform_interface: any

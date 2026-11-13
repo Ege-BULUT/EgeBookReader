@@ -41,9 +41,11 @@ void main() {
   // Each release's files, as that release wrote them (test/fixtures/<release>/). A new release adds its own folder.
   final releases = [for (final d in Directory('test/fixtures').listSync().whereType<Directory>()) p.basename(d.path)]..sort();
 
-  test('there is a fixture for every release up to this one', () {
+  // A release adds its own folder: copy library.json, settings.json, lists.json, stats.json and samples-added.txt
+  // from a phone that used every feature of it (adb exec-out run-as dev.egebulut.egebookreader cat app_flutter/…).
+  test('there is a fixture for every release, this one included', () {
     expect(releases, containsAll(['0.1.0', '0.1.8', '0.2.0']));
-    expect(releases.last, appVersion);
+    expect(releases, contains(appVersion));
   });
 
   for (final release in releases) {
