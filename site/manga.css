@@ -1,0 +1,166 @@
+/* Manga mode. Off until <html data-mode="manga">; book mode never sees any of this. */
+#manga{display:none}
+html[data-mode=manga] #manga{display:block;position:fixed;inset:0;z-index:45;overflow:hidden;color:#000;font-family:"Shantell Sans","Comic Sans MS",system-ui,sans-serif;
+  background:radial-gradient(circle,rgba(255,255,255,.07) 1.1px,transparent 1.6px) 0 0/9px 9px,radial-gradient(110% 80% at 50% 45%,#2c2a28 0,#0c0b0a 70%)}
+html[data-mode=manga] body{background:#0c0b0a}
+
+/* the switch and the language button, lettered */
+html[data-mode=manga] #corner{font:400 17px/1 Bangers,Impact,sans-serif;letter-spacing:.06em;color:#000;gap:6px}
+html[data-mode=manga] #mode{background:#fff;border:2.5px solid #000;box-shadow:3px 3px 0 #fff;transform:rotate(-2deg)}
+html[data-mode=manga] #mode button,html[data-mode=manga] #lang{opacity:1;padding:7px 9px;text-transform:uppercase}
+html[data-mode=manga] #mode [aria-pressed=true]{background:#000;color:#fff;text-decoration:none}
+html[data-mode=manga] #mode span{opacity:1;padding:0 1px}
+html[data-mode=manga] #lang{background:#fff;border:2.5px solid #000;box-shadow:3px 3px 0 #fff;transform:rotate(2deg)}
+html[data-mode=manga] #corner button:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
+
+.mstage{position:absolute;left:0;right:0;top:58px;bottom:58px;display:flex;align-items:center;justify-content:center;perspective:2600px;touch-action:pan-y pinch-zoom;user-select:none;-webkit-user-select:none}
+.mvol{position:relative;width:calc(var(--pw)*2);height:var(--ph);transform-style:preserve-3d;transition:transform .7s cubic-bezier(.45,.05,.3,1)}
+.single .mvol{width:var(--pw)}
+.mslot{position:absolute;top:0;width:var(--pw);height:var(--ph)}
+.mslot.l{left:0}.mslot.r{left:var(--pw)}
+.single .mslot.l{display:none}.single .mslot.r{left:0}
+.mslot:not(:empty){box-shadow:0 18px 50px rgba(0,0,0,.6)}
+/* the fold between two pages */
+.mslot.l .mp::after,.mslot.r .mp::after{content:"";position:absolute;top:0;bottom:0;width:7%;pointer-events:none;z-index:5}
+.mslot.l .mp::after{right:0;background:linear-gradient(270deg,rgba(0,0,0,.28),transparent)}
+.mslot.r .mp::after{left:0;background:linear-gradient(90deg,rgba(0,0,0,.28),transparent)}
+.single .mslot .mp::after{display:none}
+.mmeasure{position:absolute;left:-30000px;top:0;visibility:hidden}
+
+.leaf{position:absolute;top:0;width:var(--pw);height:var(--ph);transform-style:preserve-3d;transition:transform .72s cubic-bezier(.45,.05,.3,1);z-index:10;pointer-events:none}
+.leaf .face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;overflow:hidden}
+.leaf .face.back{transform:rotateY(180deg)}
+.leaf .face::before{content:"";position:absolute;inset:0;z-index:9;background:linear-gradient(90deg,rgba(0,0,0,0),rgba(0,0,0,.18));animation:shade .72s ease-in-out}
+@keyframes shade{0%,100%{opacity:0}50%{opacity:1}}
+
+/* ---- a page ---- */
+.mp{position:relative;overflow:hidden;background:#f7f4ec var(--grain);line-height:1.28;-webkit-font-smoothing:antialiased}
+.mp.bleed{background:#000}
+.field{position:absolute;background:#0a0a0a}
+.mfolio{position:absolute;bottom:1.1%;left:0;right:0;text-align:center;font:400 1em/1 Bangers,Impact,sans-serif;letter-spacing:.08em;color:#222}
+.frames{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
+.frames polygon{fill:none;stroke:#fff;stroke-width:1.6;stroke-linejoin:miter}
+.bleed .frames{display:none}
+.pn{position:absolute;overflow:hidden;background:#fff}
+.pn::before{content:"";position:absolute;inset:0;pointer-events:none}
+.pn.ink{background:#050505;color:#fff}
+.pc{position:absolute;z-index:3;display:flex;flex-direction:column;align-items:flex-start;gap:.45em;padding:.7em .75em;overflow:hidden}
+.pc.mid{justify-content:center;align-items:center;text-align:center}
+.pc.bot{align-items:flex-end}
+.pc.bot>:first-child{margin-top:auto}
+.pc.scroll{overflow:auto;overscroll-behavior:contain}
+.pc>*{flex:0 0 auto;max-width:100%}
+
+/* screentone, speed lines, focus lines */
+.tone::before{background:radial-gradient(circle,#000 30%,transparent 34%) 0 0/.42em .42em;opacity:.34;-webkit-mask:linear-gradient(155deg,#000 0,transparent 70%);mask:linear-gradient(155deg,#000 0,transparent 70%)}
+.tone-b::before{background:radial-gradient(circle,#000 30%,transparent 34%) 0 0/.42em .42em;opacity:.32;-webkit-mask:linear-gradient(0deg,#000 0,transparent 75%);mask:linear-gradient(0deg,#000 0,transparent 75%)}
+.speed::before,.speed-r::before{background:repeating-linear-gradient(180deg,transparent 0 6px,#000 6px 7px,transparent 7px 10px,#000 10px 12px,transparent 12px 19px,#000 19px 19.6px,transparent 19.6px 27px);opacity:.75}
+.speed::before{-webkit-mask:linear-gradient(90deg,#000 0,transparent 55%);mask:linear-gradient(90deg,#000 0,transparent 55%)}
+.speed-r::before{-webkit-mask:linear-gradient(270deg,#000 0,transparent 55%);mask:linear-gradient(270deg,#000 0,transparent 55%)}
+.focus::before{--c:#000;background:repeating-conic-gradient(from 2deg at var(--fx,50%) var(--fy,50%),var(--c) 0 .55deg,transparent .9deg 2.4deg,var(--c) 2.7deg 3deg,transparent 3.4deg 4.9deg,var(--c) 5.1deg 5.9deg,transparent 6.3deg 8deg);
+  -webkit-mask:radial-gradient(closest-side,transparent 52%,#000 125%);mask:radial-gradient(closest-side,transparent 52%,#000 125%);opacity:.85}
+.ink.focus::before{--c:#fff;opacity:.55}
+.stars::before{background:radial-gradient(1.4px 1.4px at 20% 30%,#fff 50%,transparent),radial-gradient(1px 1px at 70% 60%,#fff 50%,transparent),radial-gradient(1.8px 1.8px at 40% 80%,#fff 50%,transparent),radial-gradient(1px 1px at 85% 15%,#fff 50%,transparent),radial-gradient(1.2px 1.2px at 55% 40%,#fff 50%,transparent);background-size:97px 89px,131px 113px,173px 151px,61px 71px,113px 97px;opacity:.9}
+
+/* drawings */
+.hk,.shot{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.hk.inv{filter:invert(1)}
+.hk.faint{opacity:.35}
+.shot{cursor:zoom-in;transition:transform .25s cubic-bezier(.22,1,.36,1)}
+.shot:hover{transform:scale(1.04)}
+.sil{position:absolute;color:#fff;pointer-events:none}
+.sil.knight{width:50%;left:-9%;bottom:-4%;opacity:.9;transform:scaleX(-1)}
+.sil.drag{width:58%;right:-4%;top:-4%;opacity:.28}
+.sil.robot{width:52%;left:-8%;bottom:-8%;opacity:.22}
+.sil.ufo{width:62%;left:19%;top:16%;opacity:.95}
+.glow{position:absolute;left:50%;top:58%;width:70%;aspect-ratio:1;transform:translate(-50%,-50%);background:repeating-conic-gradient(#fff 0 1.2deg,transparent 2deg 7deg);-webkit-mask:radial-gradient(closest-side,#000 10%,transparent 100%);mask:radial-gradient(closest-side,#000 10%,transparent 100%);opacity:.6}
+.obook{position:absolute;left:50%;top:60%;width:34%;transform:translate(-50%,-50%);color:#fff}
+
+/* lettering */
+.ttl{margin:0;font:400 2.3em/.95 Bangers,Impact,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:#fff;-webkit-text-stroke:.09em #000;paint-order:stroke fill;text-shadow:.07em .07em 0 #000;transform:rotate(-2.5deg)}
+.ttl.sm{font-size:1.7em}
+.bal{position:relative;margin:0;padding:.9em 1.35em;background:#fff;color:#000;border:2px solid #000;border-radius:50%/46%;text-align:center;font-size:1em;line-height:1.25;width:fit-content}
+.bal.long{border-radius:1.5em}
+.bal.big{font-size:1.25em;font-weight:700;padding:1em 1.4em}
+.bal::before,.bal::after{content:"";position:absolute;width:1.3em;height:1.2em;background:#000;clip-path:polygon(0 0,100% 0,15% 100%)}
+.bal::after{width:.95em;height:.85em;background:#fff}
+.t-bl::before{left:22%;bottom:-1.15em}.t-bl::after{left:calc(22% + .17em);bottom:-.8em}
+.t-br::before{right:22%;bottom:-1.15em;clip-path:polygon(0 0,100% 0,85% 100%)}.t-br::after{right:calc(22% + .17em);bottom:-.8em;clip-path:polygon(0 0,100% 0,85% 100%)}
+.t-tl::before{left:22%;top:-1.15em;clip-path:polygon(15% 0,100% 100%,0 100%)}.t-tl::after{left:calc(22% + .17em);top:-.8em;clip-path:polygon(15% 0,100% 100%,0 100%)}
+.t-tr::before{right:22%;top:-1.15em;clip-path:polygon(85% 0,100% 100%,0 100%)}.t-tr::after{right:calc(22% + .17em);top:-.8em;clip-path:polygon(85% 0,100% 100%,0 100%)}
+.pc>.t-bl,.pc>.t-br{margin-bottom:.9em}
+.pc>.t-tl,.pc>.t-tr{margin-top:.9em}
+.cap{overflow-wrap:anywhere;background:#fff;color:#000;border:2px solid #000;padding:.45em .65em;box-shadow:.18em .18em 0 #000;font-size:.94em;line-height:1.3}
+.cap p{margin:0}
+.cap b{font-weight:700}
+.cap.ink{background:#000;color:#fff;border-color:#fff;box-shadow:.18em .18em 0 #fff}
+.ink .cap{box-shadow:.18em .18em 0 #fff}
+.cap.cite{font:400 1.1em/1 Bangers,Impact,sans-serif;letter-spacing:.12em;align-self:flex-end}
+.cap.art{font-size:.8em}
+.mp a{color:inherit;text-decoration-thickness:.08em;text-underline-offset:.15em}
+.tab{margin:0;padding:.18em .55em .12em;background:#000;color:#fff;font:400 1.15em/1.05 Bangers,Impact,sans-serif;letter-spacing:.05em;text-transform:uppercase;transform:rotate(-1.5deg);box-shadow:.14em .14em 0 #fff,.28em .28em 0 #000}
+.ink .tab{background:#fff;color:#000;box-shadow:.14em .14em 0 #000,.28em .28em 0 #fff}
+.tab.ver{font-size:1.6em}
+.sfx{position:absolute;z-index:1;pointer-events:none;transform:rotate(var(--r,-10deg));font-size:calc(var(--s,2)*1em);line-height:.9;text-align:center}
+.sfx b{display:block;font:400 1em/1 "Dela Gothic One",Bangers,sans-serif;color:#fff;-webkit-text-stroke:.07em #000;paint-order:stroke fill;text-shadow:.05em .05em 0 #000;letter-spacing:-.02em}
+.sfx i{display:block;font:400 .34em/1 Bangers,Impact,sans-serif;font-style:normal;letter-spacing:.12em;color:#000;-webkit-text-stroke:.1em #fff;paint-order:stroke fill}
+.ink .sfx b{color:#000;-webkit-text-stroke-color:#fff;text-shadow:.05em .05em 0 #fff}
+.ink .sfx i{color:#fff;-webkit-text-stroke-color:#000}
+
+/* the jagged balloon for the call to action */
+.shout{position:relative;padding:2.1em 2.4em;text-align:center;width:fit-content;filter:drop-shadow(.2em .25em 0 rgba(0,0,0,.9))}
+.shout::before,.shout::after{content:"";position:absolute;inset:0;clip-path:var(--burst);background:#000}
+.shout::after{inset:.32em;background:#fff}
+.shout-in{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:.35em}
+.shout-in p{margin:0;font-weight:700}
+.mdl{display:inline-block;font:400 1.35em/1 Bangers,Impact,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#fff!important;background:#000;padding:.35em .6em .28em;text-decoration:none;transform:rotate(-3deg);transition:transform .12s}
+.mdl:hover{transform:rotate(-3deg) scale(1.06)}
+.mdl:focus-visible,.mp a:focus-visible,.mp button:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
+
+/* cover and back cover */
+.pc.mcover{align-items:center;justify-content:space-between;text-align:center;padding:5% 6% 4%;color:#fff}
+.vol{position:absolute;top:3%;right:4%;display:flex;flex-direction:column;align-items:center;background:#fff;color:#000;padding:.4em .45em;font:400 1.15em/1 Bangers,Impact,sans-serif;letter-spacing:.06em;box-shadow:.18em .18em 0 #000,.3em .3em 0 #fff}
+.vol b{font-weight:400;font-size:.75em}
+.mlogo{display:block;color:#fff}
+.mlogo.big{width:44%;margin-top:4%;filter:drop-shadow(.12em .12em 0 #000) drop-shadow(-.05em -.05em 0 #000)}
+.mtitle{margin:0;font:400 4.6em/.82 Bangers,Impact,sans-serif;letter-spacing:.03em;text-transform:uppercase;color:#fff;-webkit-text-stroke:.07em #000;paint-order:stroke fill;text-shadow:.06em .06em 0 #000,.1em .1em 0 #fff;transform:rotate(-5deg)}
+.mtitle span{display:block}
+.mtitle .w1{color:#000;-webkit-text-stroke-color:#fff;text-shadow:.06em .06em 0 #fff;margin-left:.6em}
+.mtitle .w2{margin-left:-.3em}
+.cap.mauthor{font:400 1.25em/1 Bangers,Impact,sans-serif;letter-spacing:.2em;transform:rotate(-2deg)}
+.imp{margin:0;font-size:.85em;color:#fff;background:#000;padding:.15em .5em}
+.rtl{margin:0;font:400 1em/1 Bangers,"Dela Gothic One",Impact,sans-serif;letter-spacing:.08em;color:#000;background:#fff;padding:.3em .7em;border:2px solid #000;animation:nudge 1.6s ease-in-out infinite}
+.rtl b{font-weight:400;display:inline-block;margin-right:.2em}
+@keyframes nudge{0%,100%{transform:translateX(0)}50%{transform:translateX(-.5em)}}
+.tone-band{position:absolute;left:0;right:0;bottom:0;height:45%;background:radial-gradient(circle,#fff 28%,transparent 32%) 0 0/.5em .5em;-webkit-mask:linear-gradient(0deg,#000,transparent);mask:linear-gradient(0deg,#000,transparent);opacity:.35}
+.pc.mback{align-items:center;justify-content:center;gap:1em;text-align:center;color:#fff}
+.tsuzuku{margin:0;font:400 5em/1 "Dela Gothic One",sans-serif;writing-mode:vertical-rl;color:#fff;-webkit-text-stroke:.05em #000;paint-order:stroke fill;text-shadow:.06em .06em 0 #000}
+.mend{margin:0;font:400 1.8em/1 Bangers,Impact,sans-serif;letter-spacing:.08em;text-transform:uppercase}
+.mlogo.tiny{width:28%}
+
+/* contents, platforms, links */
+.mtoc{list-style:none;margin:0;padding:0;width:100%;display:flex;flex-direction:column;gap:.5em}
+.mtoc button{display:flex;align-items:baseline;gap:.5em;width:100%;padding:.4em .6em;background:#fff;border:2px solid #000;box-shadow:.18em .18em 0 #000;font:inherit;font-size:1.05em;color:#000;text-align:left;cursor:pointer;transition:transform .15s}
+.mtoc button:hover{transform:translateX(-.3em) rotate(-1deg)}
+.mtoc i{font:400 1.25em/1 Bangers,Impact,sans-serif;font-style:normal;min-width:1.6em}
+.mtoc span{flex:1}
+.mtoc em{font:400 1.2em/1 Bangers,Impact,sans-serif;font-style:normal}
+.mplat{border-collapse:separate;border-spacing:.35em;width:100%}
+.mplat th{font:400 1.3em/1 Bangers,Impact,sans-serif;letter-spacing:.05em;text-transform:uppercase;text-align:right;padding:.3em .4em;background:#000;color:#fff}
+.mplat td{padding:.3em .55em;background:#fff;border:2px solid #000;text-align:left}
+.mplat .dl{font:400 1.15em/1 Bangers,Impact,sans-serif;letter-spacing:.05em;text-transform:uppercase;color:#fff!important;background:#000;text-decoration:none;padding:.15em .5em;border-radius:0}
+.bal.lk{border-radius:1.4em;padding:.6em .8em;font-weight:700;word-break:break-word}
+
+@media (prefers-reduced-motion:reduce){.mvol,.leaf,.shot,.mtoc button{transition:none}.rtl,.leaf .face::before{animation:none}}
+
+/* the reader's buttons */
+.mnav{position:absolute;left:0;right:0;bottom:10px;display:flex;justify-content:center;align-items:center;gap:8px;font:400 17px/1 Bangers,Impact,sans-serif;letter-spacing:.06em}
+.mnav button{display:flex;align-items:center;gap:.4em;padding:9px 13px 8px;background:#fff;color:#000;border:2.5px solid #000;box-shadow:3px 3px 0 #fff;text-transform:uppercase;min-height:40px;font:inherit}
+.mnav button:disabled{opacity:.35;cursor:default}
+.mnav button:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
+.mnav .next{transform:rotate(-1.5deg)}.mnav .prev{transform:rotate(1.5deg)}
+.mcount{color:#fff;min-width:4.5em;text-align:center}
+.flipfx{position:absolute;top:calc(50% - var(--ph)/2 - 6px);left:50%;z-index:20;--s:1.6;font-size:22px;animation:flip .72s ease-out forwards;--r:-12deg}
+.flipfx.back{--r:12deg}
+@keyframes flip{0%{opacity:0;transform:translate(-50%,10px) rotate(var(--r)) scale(.6)}30%{opacity:1;transform:translate(-50%,-6px) rotate(var(--r)) scale(1.1)}100%{opacity:0;transform:translate(-50%,-18px) rotate(var(--r)) scale(1)}}
+@media (max-width:480px){.mnav{gap:5px;font-size:15px}.mnav button{padding:8px 9px 7px}.mnav button span{display:none}}

@@ -10,6 +10,9 @@ const T = {
     models:'Downloadable models',modelsText:'Models are fetched from their authors only when you ask. Manga Light Colorizer (sharky172) is CC BY-NC-SA 4.0, DDColor is Apache-2.0, Supertonic is OpenRAIL-M, Kokoro is Apache-2.0, Antalia-2 Mini is Apache-2.0, Ahenk Cep is CC BY 4.0 (Özgür Güler), the OpenVoice v2 converter is MIT, Real-ESRGAN is BSD-3, PP-OCRv5 and Opus-MT are Apache-2.0.',
     credits:'Credits',creditsText:'Sample pages: Pepper&Carrot by David Revoy (CC BY 4.0). Give My Regards to Black Jack by SHUHO SATO. DjVu by DjVuLibre, CBR and CB7 by libarchive and xz. Fonts from Fontsource. Cover silhouettes from game-icons.net (CC BY 3.0). EgeBookReader is licensed under AGPL-3.0.',
     colorize:'Colorized on the phone',colorNote:'Original, then model 1 and model 2. Tap to enlarge.',contact:'Contact',bug:'Report a bug',request:'Request a feature',
+    earlier:'Earlier versions on GitHub',
+    mode:'Reading mode',book:'Book',manga:'Manga',rtl:'Read right to left',next:'Next page',prev:'Previous page',end:'To be continued…',
+    mangaArt:'Drawings in manga mode: Katsushika Hokusai, Hokusai Manga, public domain (PD-old-100), from Wikimedia Commons:',
   },
   tr: {
     contents:'İçindekiler',open:'Açmak için kapağa dokun',download:'Android için indir',version:'Sürüm',epigraph:'Her bir kitap çantanıza sığan bir evrendir.',
@@ -21,6 +24,9 @@ const T = {
     models:'İndirilebilir modeller',modelsText:'Modeller sadece sen istediğinde, yazarlarının kendi adreslerinden iner. Manga Light Colorizer (sharky172) CC BY-NC-SA 4.0, DDColor Apache-2.0, Supertonic OpenRAIL-M, Kokoro Apache-2.0, Antalia-2 Mini Apache-2.0, Ahenk Cep CC BY 4.0 (Özgür Güler), OpenVoice v2 dönüştürücü MIT, Real-ESRGAN BSD-3, PP-OCRv5 ve Opus-MT Apache-2.0 lisanslıdır.',
     credits:'Teşekkürler',creditsText:'Örnek sayfalar: David Revoy, Pepper&Carrot (CC BY 4.0). SHUHO SATO, Give My Regards to Black Jack. DjVu için DjVuLibre, CBR ve CB7 için libarchive ve xz. Fontlar Fontsource\'tan. Kapak siluetleri game-icons.net (CC BY 3.0). EgeBookReader AGPL-3.0 ile lisanslıdır.',
     colorize:'Telefonda renklendirme',colorNote:'Orijinal, model 1 ve model 2. Büyütmek için dokun.',contact:'İletişim',bug:'Hata bildir',request:'Özellik iste',
+    earlier:'Önceki sürümler GitHub\'da',
+    mode:'Görünüm',book:'Kitap',manga:'Manga',rtl:'Sağdan sola oku',next:'Sonraki sayfa',prev:'Önceki sayfa',end:'Devam edecek…',
+    mangaArt:'Manga modundaki çizimler: Katsushika Hokusai, Hokusai Manga, kamu malı (PD-old-100), Wikimedia Commons\'tan:',
   },
 };
 const FEATURES = {
@@ -35,6 +41,7 @@ const PRIVACY = {
   en:`<p><b>Who.</b> EgeBookReader is developed by Ege BULUT. Contact: egebulut.iletisim@outlook.com.</p><p><b>What the app collects.</b> Nothing. There is no account, no analytics and no advertising. Your books, settings, bookmarks and coloured pictures stay on your device.</p><p><b>When the app uses the internet.</b> Mostly when you ask for something that needs it: the font list and fonts come from Fontsource and jsDelivr; colorization models from Hugging Face or Qualcomm; voices from GitHub and Hugging Face; comic models from GitHub and ModelScope. The player's author and book cards ask Wikipedia and Open Library, only while online lookups are on. One exception is on unless you turn it off: to file books into categories and suggest tags, the app sends each new book's search text, its title and author unless you change it, to Open Library, and nothing else. Turn it off in Settings, Library. Those services see your IP address, as any website does.</p><p><b>API keys.</b> If you add your own read-aloud API key, the text being read is sent to the service you chose, under that service's terms. The key stays on your device.</p><p><b>This website.</b> It is hosted on Vercel, which keeps standard access logs. The site sets no cookies and has no analytics. Fonts load from Google Fonts.</p><p><b>Your rights.</b> Since the app holds no data about you on any server, deleting the app deletes everything. For questions, write to the address above.</p>`,
   tr:`<p><b>Veri sorumlusu.</b> EgeBookReader, Ege BULUT tarafından geliştirilir. İletişim: egebulut.iletisim@outlook.com.</p><p><b>Uygulamanın topladığı veriler.</b> Hiçbiri. Hesap, analiz ve reklam yoktur. Kitapların, ayarların, yer imlerin ve renklendirdiğin görseller cihazında kalır.</p><p><b>Uygulama internete ne zaman çıkar.</b> Çoğunlukla sen internet gerektiren bir şey istediğinde: font listesi ve fontlar Fontsource ve jsDelivr'den, renklendirme modelleri Hugging Face veya Qualcomm'dan, sesler GitHub ve Hugging Face'ten, çizgi roman modelleri GitHub ve ModelScope'tan iner. Çalardaki yazar ve kitap kartları, internetten bilgi alma açıkken Vikipedi ve Open Library'ye sorar. Bir istisna, sen kapatmadıkça açıktır: kitapları kategorilere ayırmak ve etiket önermek için uygulama her yeni kitabın arama metnini (değiştirmedikçe adı ve yazarı) Open Library'ye gönderir, başka bir şey göndermez. Ayarlar, Kitaplık bölümünden kapatabilirsin. Bu servisler, her web sitesi gibi IP adresini görür.</p><p><b>API anahtarları.</b> Kendi sesli okuma API anahtarını eklersen, okunan metin seçtiğin servise o servisin koşullarıyla gönderilir. Anahtar cihazında kalır.</p><p><b>Bu web sitesi.</b> Vercel'de barındırılır; Vercel standart erişim kayıtları tutar. Site çerez kullanmaz, analiz aracı yoktur. Fontlar Google Fonts'tan yüklenir.</p><p><b>Hakların.</b> Uygulama hiçbir sunucuda senin hakkında veri tutmadığı için uygulamayı silmek her şeyi siler. Soruların için yukarıdaki adrese yazabilirsin.</p>`,
 };
+const RELEASES = 'https://github.com/Ege-BULUT/EgeBookReader/releases';
 const SHOTS = ['library','player','search','highlights','flip','book','widget'];
 const COMPARE = ['book','manga'].flatMap(k => ['orig','ddcolor','manga'].map(v => `compare-${k}-${v}`));
 
@@ -74,7 +81,7 @@ function fill(root) {
   const ch = $('#changes', root);
   // The newest three fit on the page; the rest are on GitHub Releases.
   if (ch) ch.innerHTML = CHANGES[lang].slice(0, 3).map(([v, t]) => `<div class="change"><b>${v}</b><p>${t}</p></div>`).join('') +
-    `<p class="change"><a href="https://github.com/Ege-BULUT/EgeBookReader/releases">${lang === 'tr' ? 'Önceki sürümler GitHub\'da' : 'Earlier versions on GitHub'}</a></p>`;
+    `<p class="change"><a href="${RELEASES}">${T[lang].earlier}</a></p>`;
   const pr = $('#privacy', root);
   if (pr) pr.innerHTML = PRIVACY[lang];
   const v = $('#version', root);
