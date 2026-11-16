@@ -28,7 +28,7 @@
       "critical"
     ],
     "taskIdPrefix": "T-",
-    "nextTaskSeq": 16
+    "nextTaskSeq": 17
   },
   "tasks": [
     {
@@ -504,6 +504,37 @@
         },
         {
           "ts": "2026-11-13T12:25:13",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
+        }
+      ],
+      "sessions": []
+    },
+    {
+      "id": "T-0016",
+      "title": "Your own voice from an audio or video file",
+      "description": "Shipped in 0.5.1: decodeAudio + bestWindow, checked on the emulator with mp4 and opus.",
+      "status": "accepted",
+      "urgency": "medium",
+      "tag": "voices",
+      "milestone": "M15",
+      "refs": [],
+      "blockedBy": [],
+      "relatedTo": [],
+      "owner": "",
+      "createdAt": "2026-11-16T10:05:25",
+      "updatedAt": "2026-11-16T10:05:37",
+      "comments": [],
+      "log": [
+        {
+          "ts": "2026-11-16T10:05:25",
+          "actor": "unspecified",
+          "event": "created",
+          "detail": "status=backlog, urgency=medium"
+        },
+        {
+          "ts": "2026-11-16T10:05:37",
           "actor": "egebookreader",
           "event": "updated",
           "detail": "status: backlog -> accepted"
