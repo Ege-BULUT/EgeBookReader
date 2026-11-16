@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en" data-mode="book">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' blob: data:; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>EgeBookReader Web</title>
+<meta name="description" content="Read EPUB, PDF, MOBI, FB2, CBZ, CBR and more in the browser. Files stay on your device.">
+<meta name="theme-color" content="#1c1714">
+<link rel="manifest" href="/read/manifest.webmanifest">
+<link rel="icon" href="/logo.svg">
+<link rel="apple-touch-icon" href="/read/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=IBM+Plex+Sans:wght@400;500;600&display=swap&subset=latin-ext" rel="stylesheet">
+<link rel="stylesheet" href="/read/read.css">
+<script src="/read/boot.js"></script>
+</head>
+<body>
+<main id="library">
+  <header class="top">
+    <a class="brand" href="/" data-tl="home"><img src="/logo.svg" alt="" width="34" height="28"><span>EgeBookReader</span><em>Web</em></a>
+    <div class="corner">
+      <div class="modes" role="group"><button data-mode="book" aria-pressed="true">Book</button><span aria-hidden="true">|</span><button data-mode="manga" aria-pressed="false">Manga</button></div>
+      <button class="lang" type="button">TR</button>
+    </div>
+  </header>
+
+  <section class="hero" id="drop">
+    <div class="balloon">
+      <h1 id="heroTitle">Read it here.</h1>
+      <p id="heroText"></p>
+      <div class="actions">
+        <button id="openBtn" class="primary" type="button" data-t="open">Open a file</button>
+        <button id="dirBtn" class="ghost" type="button" data-t="folder">Open a folder of pictures</button>
+      </div>
+      <p class="formats" data-t="formats"></p>
+      <p class="privacy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v6c0 4.4-3 7.9-7 9-4-1.1-7-4.6-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg><span data-t="privacy"></span></p>
+    </div>
+    <div class="art" aria-hidden="true"><img src="/manga/ghost.png" alt=""></div>
+  </section>
+
+  <section id="shelf" hidden>
+    <h2 data-t="library">Your library</h2>
+    <p id="emptyNote" class="muted" data-t="empty"></p>
+    <div id="grid"></div>
+  </section>
+
+  <footer class="foot">
+    <a href="/download/EgeBookReader.apk" data-t="app">Get the Android app</a>
+    <span>·</span><a href="https://github.com/Ege-BULUT/EgeBookReader">GitHub</a>
+    <span>·</span><span>AGPL-3.0</span><span>·</span><span id="ver"></span>
+  </footer>
+</main>
+
+<div id="reader" hidden>
+  <div id="surface" tabindex="-1"></div>
+  <div class="folio top" id="folioTop" aria-hidden="true"></div>
+  <div class="folio bottom" id="folioBottom" aria-hidden="true"></div>
+  <header class="rbar top">
+    <button id="rback" class="ib" type="button" data-tl="back"></button>
+    <div class="rtitle"><b id="rtitle"></b><span id="chap"></span></div>
+    <button id="rtoc" class="ib" type="button" data-panel="toc" data-tl="contents" aria-expanded="false"></button>
+    <button id="find" class="ib" type="button" data-panel="search" data-tl="search" aria-expanded="false"></button>
+    <button id="raa" class="ib" type="button" data-panel="settings" data-tl="settings" aria-expanded="false"></button>
+    <button id="speak" class="ib" type="button" data-tl="speak" aria-pressed="false"></button>
+    <button id="rfull" class="ib" type="button" data-tl="full"></button>
+  </header>
+  <footer class="rbar bottom">
+    <input id="scrub" type="range" min="0" max="1000" value="0" data-tl="page">
+    <span id="where"></span>
+  </footer>
+  <aside id="panel" hidden role="dialog" aria-modal="false">
+    <button id="panelClose" class="ib close" type="button" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div id="sheet"></div>
+  </aside>
+  <div id="hint" hidden></div>
+</div>
+
+<div id="busy" hidden><div class="box"><div class="spin" aria-hidden="true"></div><span id="busyText"></span><progress id="busyBar" max="1" hidden></progress></div></div>
+<div id="toast" hidden role="status"></div>
+<div id="dropzone" aria-hidden="true"><span data-t="drop">Drop files here</span></div>
+<input id="pick" type="file" multiple hidden accept=".epub,.pdf,.mobi,.azw,.azw3,.prc,.fb2,.fbz,.zip,.cbz,.cbr,.cb7,.rar,.7z,.docx,.odt,.rtf,.txt,.md,.markdown,.html,.htm,.xhtml,.djvu,.djv,image/*,application/epub+zip,application/pdf">
+<input id="pickDir" type="file" hidden webkitdirectory multiple>
+<script src="/curl.frag.js"></script>
+<script type="module" src="/read/app.js"></script>
+</body>
+</html>

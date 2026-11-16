@@ -1,0 +1,35 @@
+{
+  "name": "EgeBookReader Web",
+  "short_name": "EgeBookReader",
+  "description": "Books and comics in the browser. Files stay on your device.",
+  "id": "/read/",
+  "start_url": "/read/",
+  "scope": "/read/",
+  "display": "standalone",
+  "background_color": "#1c1714",
+  "theme_color": "#1c1714",
+  "icons": [
+    { "src": "/read/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/read/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/read/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "file_handlers": [{
+    "action": "/read/",
+    "accept": {
+      "application/epub+zip": [".epub"],
+      "application/pdf": [".pdf"],
+      "application/vnd.comicbook+zip": [".cbz"],
+      "application/vnd.comicbook-rar": [".cbr"],
+      "application/x-cb7": [".cb7"],
+      "application/x-mobipocket-ebook": [".mobi", ".azw", ".azw3"],
+      "application/x-fictionbook+xml": [".fb2", ".fbz"],
+      "text/plain": [".txt", ".md"]
+    }
+  }],
+  "share_target": {
+    "action": "/read/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": { "files": [{ "name": "files", "accept": ["*/*", ".epub", ".pdf", ".cbz", ".cbr", ".mobi", ".fb2"] }] }
+  }
+}

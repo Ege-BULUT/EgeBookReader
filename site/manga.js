@@ -372,6 +372,7 @@ function setMode(mode, save) {
   table.inert = manga;
   host.inert = !manga;
   $('#mode').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+  $('#web').href = manga ? '/read?mode=manga' : '/read';
   if (save) {
     try { localStorage.setItem('mode', mode); } catch (e) {}
     try { const u = new URL(location.href); if (manga) u.searchParams.set('mode', 'manga'); else u.searchParams.delete('mode'); history.replaceState(null, '', u); } catch (e) {}

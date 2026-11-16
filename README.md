@@ -10,6 +10,7 @@ Free, open source, no account and no ads.</p>
 
 <p>
   <a href="https://egebookreader.vercel.app/download/EgeBookReader.apk"><img alt="Download APK" src="https://img.shields.io/badge/download-APK-a8492f?style=for-the-badge&logo=android&logoColor=white"></a>
+  <a href="https://egebookreader.vercel.app/read"><img alt="Read in the browser" src="https://img.shields.io/badge/read-in%20the%20browser-5d6b4f?style=for-the-badge&logo=googlechrome&logoColor=white"></a>
   <a href="https://egebookreader.vercel.app"><img alt="Website" src="https://img.shields.io/badge/website-egebookreader.vercel.app-231f1b?style=for-the-badge&logo=vercel&logoColor=white"></a>
 </p>
 
@@ -17,7 +18,7 @@ Free, open source, no account and no ads.</p>
   <img alt="Android 7+" src="https://img.shields.io/badge/Android-7%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Flutter 3.47" src="https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter&logoColor=white">
   <img alt="Works offline" src="https://img.shields.io/badge/works-offline-7E3321">
-  <img alt="Version 0.2.0" src="https://img.shields.io/badge/version-0.2.0%20preview-F59E0B">
+  <img alt="Version 0.5.1" src="https://img.shields.io/badge/version-0.5.1%20preview-F59E0B">
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-2EA043"></a>
 </p>
 
@@ -36,7 +37,7 @@ Free, open source, no account and no ads.</p>
 </div>
 
 > [!NOTE]
-> **0.2.0 is a preview for Android.** It has been tested on an emulator and by its author on one phone. iOS, Windows, macOS and Linux will come from the same code later.
+> **0.5.1 is a preview for Android.** It has been tested on an emulator and by its author on one phone. Books and comics also open in any browser at [egebookreader.vercel.app/read](https://egebookreader.vercel.app/read). iOS, Windows, macOS and Linux apps will come from the same code later.
 
 ## Why EgeBookReader
 
@@ -240,6 +241,14 @@ Manga Light Colorizer's license forbids commercial use. EgeBookReader is free an
 
 Every version, with its notes, is also on [GitHub Releases](https://github.com/Ege-BULUT/EgeBookReader/releases). The app is not on Google Play yet.
 
+### Or read in the browser
+
+[egebookreader.vercel.app/read](https://egebookreader.vercel.app/read) opens EPUB, PDF, MOBI, AZW3, FB2, CBZ, CBR, CB7, DOCX, ODT, RTF, TXT, Markdown, HTML and folders of pictures on a phone or a computer. The file is read by the browser and kept in the browser's own storage on that device; nothing is uploaded. A comic switches the page to the manga style and a book to the book style by itself.
+
+- Books: pages in columns (two side by side on a wide screen), five themes, four fonts, text size, spacing, margins, contents, search, and reading aloud with the browser's voices, each sentence marked.
+- Comics and PDFs: the app's page curl, two-page spreads with the cover alone, right to left when the book says so (ComicInfo or the EPUB spine), pinch and double-tap zoom, page thumbnails, and webtoons as one long strip, found by the shape of their pages.
+- Your place in every book is kept, in the address too, so a reload opens the same page. It works offline once loaded, installs as an app, and on Android takes files from the share sheet.
+
 ## Build from source
 
 You need [Flutter](https://flutter.dev) 3.47, the Android SDK with the NDK, and a JDK.
@@ -259,12 +268,14 @@ app/lib/        the app: reader, formats, colorizer, voices, setup
 app/shaders/    page curl, dark PDF pages, picture filters
 app/android/app/src/main/cpp/   native builds of libarchive, xz and DjVuLibre
 site/           the website, plain HTML, CSS and JavaScript
+site/read/      the web reader: formats, the text and page readers, pdf.js and libarchive.js
 memory/         requirements, research and the decisions behind the project
 ```
 
 ## Known limitations
 
-- Android on arm64 only for now.
+- Android on arm64 only for now; other systems can use the web reader.
+- The web reader has no colorization, model voices, highlights or DjVu yet, and keeps its library in one browser only.
 - DjVu pages are pictures only: no reading aloud, search or table of contents for them yet.
 - PDF reflow leaves pictures out.
 - Colours from any model are a guess: often good, sometimes wrong.
@@ -279,7 +290,7 @@ memory/         requirements, research and the decisions behind the project
 
 ## Credits
 
-Sample pages from [Pepper&Carrot](https://www.peppercarrot.com) by David Revoy (CC BY 4.0) and *Give My Regards to Black Jack* by SHUHO SATO. Paper filters are inspired by [Okuma-Reader](https://github.com/DrMint/Okuma-Reader). PDF rendering by [PDFium](https://pdfium.googlesource.com/pdfium/) through [pdfrx](https://github.com/espresso3389/pdfrx), voices run on [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), DjVu through [DjVuLibre](https://djvu.sourceforge.net) (GPL-2.0-or-later), CBR and CB7 through [libarchive](https://github.com/libarchive/libarchive) and [xz](https://github.com/tukaani-project/xz), fonts from [Fontsource](https://fontsource.org). The logo's E is from the Ruthie typeface (OFL), and the website's silhouettes are from [game-icons.net](https://game-icons.net) (CC BY 3.0).
+Sample pages from [Pepper&Carrot](https://www.peppercarrot.com) by David Revoy (CC BY 4.0) and *Give My Regards to Black Jack* by SHUHO SATO. Paper filters are inspired by [Okuma-Reader](https://github.com/DrMint/Okuma-Reader). PDF rendering by [PDFium](https://pdfium.googlesource.com/pdfium/) through [pdfrx](https://github.com/espresso3389/pdfrx), voices run on [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), DjVu through [DjVuLibre](https://djvu.sourceforge.net) (GPL-2.0-or-later), CBR and CB7 through [libarchive](https://github.com/libarchive/libarchive) and [xz](https://github.com/tukaani-project/xz), fonts from [Fontsource](https://fontsource.org). The web reader uses [pdf.js](https://mozilla.github.io/pdf.js/) (Apache-2.0) and [libarchive.js](https://github.com/nika-begiashvili/libarchivejs) (MIT). The logo's E is from the Ruthie typeface (OFL), and the website's silhouettes are from [game-icons.net](https://game-icons.net) (CC BY 3.0).
 
 ## License
 

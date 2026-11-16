@@ -274,3 +274,13 @@ that names the old one.
 - OpenVoice's converter needs no transcript, only the sound, so there is no speech-to-text step.
 - The phone's own MediaExtractor and MediaCodec decode the first audio track of any file Android can read, mixed to mono and resampled to 22.05 kHz (`decodeAudio` in MainActivity.kt), at most 5 minutes. `bestWindow` picks the 40 seconds with the most speech (50 ms frames clearly above the file's quietest tenth); the reader can move the part (10 to 60 seconds) and listen to it. The decoded sound is deleted; only the embedding is kept, as before.
 - Checked on the emulator with an mp4 video and an Ogg Opus voice note: both decoded to 37 s, the voice was kept, and a book was read in it.
+
+## 2026-11-16 D30 A web reader at /read
+
+- The user asked for an "Open in web" button at the top right of the site that opens `/read`, where a book or comic from the device opens in the browser and the page switches to book or manga style by the file.
+- Not a Flutter web build: the app is tied to `dart:io`, FFI (libarchive, DjVuLibre, ONNX) and native code throughout, and a Flutter web bundle is heavy on a phone. The reader is plain JavaScript modules in `site/read/`, like the rest of the site, with no build step.
+- Formats are ported from `formats.dart` and `sources.dart` to `formats.js` and `zip.js` (zip read lazily with `File.slice` and the browser's own `DecompressionStream`). PDF uses pdf.js 6.5 (legacy build, Apache-2.0); RAR, RAR5 and 7z use libarchive.js 2.0.2 (MIT, WebAssembly). Both are vendored in `site/read/vendor/` and load only when such a file is opened.
+- Book HTML goes through an allowlist sanitizer before it is put in the page, and the page has a strict Content Security Policy (scripts only from the site).
+- Text books are laid out in CSS columns, one chapter at a time; a place is a chapter and a character offset, so a new font size or window keeps the same character on screen.
+- Comics and PDFs turn with the site's WebGL copy of the app's curl shader; right-to-left books mirror the canvas and the textures. Webtoons are found by page shape (median height over width above 2.1) and shown as a strip.
+- The library is IndexedDB in the browser (`ebr-web`): the files themselves, the place, a cover thumbnail. Nothing is uploaded. A service worker keeps `/read` working offline; the manifest declares file handlers and an Android share target.

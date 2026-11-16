@@ -28,7 +28,7 @@
       "critical"
     ],
     "taskIdPrefix": "T-",
-    "nextTaskSeq": 17
+    "nextTaskSeq": 18
   },
   "tasks": [
     {
@@ -538,6 +538,31 @@
           "actor": "egebookreader",
           "event": "updated",
           "detail": "status: backlog -> accepted"
+        }
+      ],
+      "sessions": []
+    },
+    {
+      "id": "T-0017",
+      "title": "Web reader at /read with an Open in web button",
+      "description": "Plain JS modules in site/read: formats.js/zip.js (ported from formats.dart), text.js (columns), pages.js (curl, spreads, zoom, strip), pdf.js and archive.js (vendored pdf.js and libarchive.js), IndexedDB library, service worker. Checked with Playwright on desktop and phone sizes with every format.",
+      "status": "backlog",
+      "urgency": "high",
+      "tag": "web",
+      "milestone": "M19",
+      "refs": [],
+      "blockedBy": [],
+      "relatedTo": [],
+      "owner": "",
+      "createdAt": "2026-11-16T16:19:05",
+      "updatedAt": "2026-11-16T16:19:05",
+      "comments": [],
+      "log": [
+        {
+          "ts": "2026-11-16T16:19:05",
+          "actor": "unspecified",
+          "event": "created",
+          "detail": "status=backlog, urgency=high"
         }
       ],
       "sessions": []
