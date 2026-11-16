@@ -267,3 +267,10 @@ that names the old one.
 - Reliability: fixtures for every release in `app/test/fixtures/<version>/`, a test that fails without one for the current version, books whose files are missing kept in `library.missing` instead of dropped, automatic backups to a folder the reader picks, Android Auto Backup for the records, `tool/e2e.sh` on the emulator, and the 10,000-book limits in `tool/perf.md`.
 - `library.json` became `{books, shelves}` in 0.5.0; a backup carries the shelves by file name and the audiobook files, since paths differ on another phone.
 - Models we converted ourselves (OpenVoice, Real-ESRGAN, Opus-MT en-tr, tokenizers) are hosted on the `models-v1` GitHub release.
+
+## 2026-11-16 D29 Your own voice from a file (0.5.1)
+
+- The user pointed out that people usually have a loved one's voice as a file someone sent (a WhatsApp voice note, an mp4), not a live recording. "Kendi sesim" now takes any audio or video file next to the microphone.
+- OpenVoice's converter needs no transcript, only the sound, so there is no speech-to-text step.
+- The phone's own MediaExtractor and MediaCodec decode the first audio track of any file Android can read, mixed to mono and resampled to 22.05 kHz (`decodeAudio` in MainActivity.kt), at most 5 minutes. `bestWindow` picks the 40 seconds with the most speech (50 ms frames clearly above the file's quietest tenth); the reader can move the part (10 to 60 seconds) and listen to it. The decoded sound is deleted; only the embedding is kept, as before.
+- Checked on the emulator with an mp4 video and an Ogg Opus voice note: both decoded to 37 s, the voice was kept, and a book was read in it.

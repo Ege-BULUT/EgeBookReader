@@ -173,6 +173,10 @@ class MainActivity : FlutterActivity() {
                         val args = call.arguments as Map<*, *>
                         inBackground(result) { encodeAac(args["from"] as String, args["to"] as String); null }
                     }
+                    "decodeAudio" -> {
+                        val args = call.arguments as Map<*, *>
+                        inBackground(result) { decodeAudio(args["from"] as String, args["to"] as String, (args["seconds"] as Number).toInt()) }
+                    }
                     "maker" -> result.success("${Build.MANUFACTURER} ${Build.BRAND} ${Build.MODEL}")
                     "thermal" -> result.success(
                         if (Build.VERSION.SDK_INT >= 29) (getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus else 0,
@@ -305,6 +309,91 @@ class MainActivity : FlutterActivity() {
             codec.release()
             muxer.release()
         }
+    }
+
+    /**
+     * The first audio track of any file the phone can read (mp3, m4a, ogg, opus, wav, flac, or the sound of an mp4, mkv,
+     * 3gp, webm video), decoded by the phone's own codecs, mixed to mono and resampled to 22.05 kHz, written as raw
+     * 16-bit PCM. At most [seconds] seconds. Returns the seconds written, or 0 when the file has no audio.
+     */
+    private fun decodeAudio(from: String, to: String, seconds: Int): Double {
+        val extractor = android.media.MediaExtractor()
+        extractor.setDataSource(from)
+        val track = (0 until extractor.trackCount).firstOrNull {
+            extractor.getTrackFormat(it).getString(android.media.MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+        } ?: run { extractor.release(); return 0.0 }
+        extractor.selectTrack(track)
+        val format = extractor.getTrackFormat(track)
+        val codec = android.media.MediaCodec.createDecoderByType(format.getString(android.media.MediaFormat.KEY_MIME)!!)
+        val out = java.io.BufferedOutputStream(java.io.FileOutputStream(to))
+        val target = 22050
+        val limit = seconds.toLong() * target
+        var written = 0L
+        var rate = format.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+        var channels = format.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT)
+        var isFloat = false
+        var position = 0.0 // where the next output sample falls, in input samples
+        var previous = 0f
+        var index = 0L // input samples seen
+        try {
+            codec.configure(format, null, null, 0)
+            codec.start()
+            val info = android.media.MediaCodec.BufferInfo()
+            var inputDone = false
+            loop@ while (written < limit) {
+                if (!inputDone) {
+                    val i = codec.dequeueInputBuffer(10_000)
+                    if (i >= 0) {
+                        val n = extractor.readSampleData(codec.getInputBuffer(i)!!, 0)
+                        if (n < 0) {
+                            codec.queueInputBuffer(i, 0, 0, 0, android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inputDone = true
+                        } else {
+                            codec.queueInputBuffer(i, 0, n, extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+                val o = codec.dequeueOutputBuffer(info, 10_000)
+                if (o == android.media.MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    val f = codec.outputFormat
+                    rate = f.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+                    channels = f.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT)
+                    isFloat = Build.VERSION.SDK_INT >= 24 && f.containsKey(android.media.MediaFormat.KEY_PCM_ENCODING) &&
+                        f.getInteger(android.media.MediaFormat.KEY_PCM_ENCODING) == android.media.AudioFormat.ENCODING_PCM_FLOAT
+                } else if (o >= 0) {
+                    val buffer = codec.getOutputBuffer(o)!!.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    buffer.position(info.offset)
+                    buffer.limit(info.offset + info.size)
+                    val step = rate.toDouble() / target
+                    val frame = channels * (if (isFloat) 4 else 2)
+                    while (buffer.remaining() >= frame && written < limit) {
+                        var sum = 0f
+                        for (c in 0 until channels) sum += if (isFloat) buffer.float else buffer.short / 32768f
+                        val sample = sum / channels
+                        // Linear interpolation between the previous input sample and this one.
+                        while (position <= index && written < limit) {
+                            val t = (position - (index - 1)).toFloat()
+                            val v = (previous + (sample - previous) * t).coerceIn(-1f, 1f)
+                            val s = (v * 32767).toInt()
+                            out.write(s and 0xff)
+                            out.write((s shr 8) and 0xff)
+                            written++
+                            position += step
+                        }
+                        previous = sample
+                        index++
+                    }
+                    codec.releaseOutputBuffer(o, false)
+                    if (info.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break@loop
+                }
+            }
+        } finally {
+            out.close()
+            codec.release()
+            extractor.release()
+        }
+        return written.toDouble() / target
     }
 
     /** A book the home-screen shelf asked to open, and whether to read it aloud. */

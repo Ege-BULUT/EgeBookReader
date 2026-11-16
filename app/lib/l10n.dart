@@ -486,4 +486,9 @@ const _en = <String, String>{
   'Çizgi roman: çift sayfa görünümü, küçük taramaları yapay zekâyla büyütme, konuşma balonlarını telefonda okuyup çevirme.': 'Comics: two-page spreads, small scans enlarged by AI, speech balloons read and translated on the phone.',
   'E-mürekkep modu: birkaç sayfada bir tam ekran yenileme, net gri görseller, animasyonsuz ekranlar.': 'E-ink mode: a full refresh every few pages, crisp grey pictures, screens without animation.',
   'Otomatik yedek seçtiğin klasöre; yeni telefonda kitaplık kaybolmaz, yedekten geri gelir.': 'Automatic backups to a folder you pick; on a new phone the library is not lost and comes back from the backup.',
+  'Ses çıkarılıyor…': 'Taking out the sound…',
+  'Bu dosyadan en az 10 saniyelik ses alınamadı.': 'Could not get at least 10 seconds of sound from this file.',
+  'Dosyadan yükle (ses ya da video)': 'From a file (audio or video)',
+  'En çok konuşma olan bölüm seçildi. Sürükleyip değiştirebilir, dinleyebilirsin.': 'The part with the most speech is picked. Drag to change it, and listen to it.',
+  'Kendi sesin için ses ya da video dosyası yükle (WhatsApp sesli mesajı, mp4…): en çok konuşma olan bölüm seçilir, dinleyip değiştirebilirsin.': 'Use an audio or video file for your own voice (a WhatsApp voice note, an mp4…): the part with the most speech is picked, and you can listen to it and change it.',
 };

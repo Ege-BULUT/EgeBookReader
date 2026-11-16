@@ -195,7 +195,7 @@ DRM-protected books are not opened; the app says so. PDFs have a reflow switch, 
 - Any service with an OpenAI-style `/audio/speech` endpoint works with your own key.
 - **Voiced ahead, offline.** With automatic voicing on, the phone voices the pages ahead with a model voice in the background, resting between sentences and slowing down when it is warm, so listening never waits. Or pick a range of pages (50 to 150, say) and see the words, the time to prepare and the time to listen before you start. If listening catches up, a sheet lets you switch voice or turn the voice off.
 - **Natural Turkish voices**: Antalia-2 Mini and Ahenk Cep, offline, with numbers, dates and abbreviations read out in Turkish.
-- **Your own voice**: read a text aloud for about 30 seconds and a converter (OpenVoice v2) makes any model voice sound like you. Only a short voice print is kept; the recording is deleted.
+- **Your own voice**: read a text aloud for about 30 seconds, or pick an audio or video file (a voice note someone sent, an mp4); the part with the most speech is chosen, and you can listen to it and move it. Either way a converter (OpenVoice v2) makes any model voice sound like you. Only a short voice print is kept; the recording is deleted.
 
 ### Audiobook player
 

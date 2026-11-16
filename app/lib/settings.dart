@@ -174,10 +174,11 @@ enum SortBy {
   bool get newestFirst => index < 3 || this == rating;
 }
 
-const appVersion = '0.5.0';
+const appVersion = '0.5.1';
 
 /// What is new in [appVersion], shown once after an update.
 const whatsNew = [
+  'Kendi sesin için ses ya da video dosyası yükle (WhatsApp sesli mesajı, mp4…): en çok konuşma olan bölüm seçilir, dinleyip değiştirebilirsin.',
   'Kitapta arama: büyüteçe dokun, her sonuç cümlesiyle gelir; dokununca sayfası açılır, kelime işaretli.',
   'Önden seslendirme: telefon ilerideki sayfaları internetsiz, yormadan seslendirir; istersen bir sayfa aralığını baştan hazırla.',
   'Doğal Türkçe sesler (Antalia-2 Mini, Ahenk Cep) ve kendi sesin: 30 saniye oku, kitap senin sesinle okunsun.',

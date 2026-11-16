@@ -8,6 +8,8 @@ import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -99,6 +101,34 @@ List<int> cutPoints(Float32List x, {int most = 8 * cloneRate}) {
 Float32List pcmSamples(Uint8List pcm) {
   final b = ByteData.sublistView(pcm);
   return Float32List.fromList([for (var i = 0; i + 1 < pcm.length; i += 2) b.getInt16(i, Endian.little) / 32768]);
+}
+
+/// The [seconds]-long stretch of [x] with the most speech in it, as sample indices: frames of 50 ms count as
+/// speech when they are clearly above the file's own noise floor (its quietest tenth), so music-free voice notes
+/// with long pauses still give their talking part.
+(int, int) bestWindow(Float32List x, int rate, {int seconds = 40}) {
+  final frame = rate ~/ 20, frames = x.length ~/ frame, span = seconds * 20;
+  if (frames <= span) return (0, x.length);
+  final rms = Float64List(frames);
+  for (var f = 0; f < frames; f++) {
+    var sum = 0.0;
+    for (var i = f * frame; i < (f + 1) * frame; i++) {
+      sum += x[i] * x[i];
+    }
+    rms[f] = sqrt(sum / frame);
+  }
+  final sorted = Float64List.fromList(rms)..sort();
+  final floor = max(sorted[frames ~/ 10], 0.003);
+  final speech = [for (final r in rms) r > floor * 3 && r < 0.95 ? 1 : 0];
+  var count = 0, best = 0, at = 0;
+  for (var f = 0; f < frames; f++) {
+    count += speech[f] - (f >= span ? speech[f - span] : 0);
+    if (f >= span - 1 && count > best) {
+      best = count;
+      at = f - span + 1;
+    }
+  }
+  return (at * frame, (at + span) * frame);
 }
 
 typedef _Job = (Float32List samples, int rate, Float32List? source, Float32List? target, SendPort reply);
@@ -284,16 +314,63 @@ class _RecordVoiceSheetState extends State<RecordVoiceSheet> {
   Timer? _clock;
   File? _file;
 
+  /// A voice taken from a file instead of the microphone: all its samples, and the part kept.
+  Float32List? _loaded;
+  RangeValues? _part;
+  final _player = AudioPlayer();
+
   @override
   void dispose() {
     _clock?.cancel();
     if (recording) device.invokeMethod('stopRecording');
     _file?.delete().ignore();
+    _player.dispose();
     _name.dispose();
     super.dispose();
   }
 
+  /// Any audio or video file (a WhatsApp voice note, an mp4 someone sent): its sound is decoded by the phone, the
+  /// part with the most speech is picked, and the reader can move the part and listen to it before keeping it.
+  Future<void> _fromFile() async {
+    final path = (await FilePicker.pickFiles()).firstOrNull?.path;
+    if (path == null || !mounted) return;
+    setState(() {
+      saving = true;
+      note = tr('Ses çıkarılıyor…');
+    });
+    final pcm = File(p.join((await getTemporaryDirectory()).path, 'voice-file.pcm'));
+    try {
+      final got = await device.invokeMethod<double>('decodeAudio', {'from': path, 'to': pcm.path, 'seconds': 300}) ?? 0;
+      if (got < 10) throw const FormatException('short');
+      final x = pcmSamples(await pcm.readAsBytes());
+      final (a, b) = bestWindow(x, cloneRate);
+      setState(() {
+        _loaded = x;
+        _part = RangeValues(a / cloneRate, b / cloneRate);
+        seconds = (b - a) ~/ cloneRate;
+        note = null;
+      });
+    } catch (e) {
+      debugPrint('voice file not read: $e');
+      if (mounted) setState(() => note = tr('Bu dosyadan en az 10 saniyelik ses alınamadı.'));
+    } finally {
+      pcm.delete().ignore();
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Float32List get _kept => Float32List.sublistView(_loaded!, (_part!.start * cloneRate).round(), (_part!.end * cloneRate).round());
+
+  Future<void> _listen() async {
+    final wav = File(p.join((await getTemporaryDirectory()).path, 'voice-part.wav'));
+    await wav.writeAsBytes(wavBytes(_kept, cloneRate));
+    await _player.stop();
+    await _player.play(DeviceFileSource(wav.path));
+  }
+
   Future<void> _start() async {
+    _loaded = null;
+    _part = null;
     _file = File(p.join((await getTemporaryDirectory()).path, 'voice-recording.pcm'));
     final ok = await device.invokeMethod<bool>('startRecording', _file!.path).catchError((_) => false);
     if (!mounted) return;
@@ -318,7 +395,7 @@ class _RecordVoiceSheetState extends State<RecordVoiceSheet> {
   Future<void> _save() async {
     setState(() => saving = true);
     try {
-      final x = pcmSamples(await _file!.readAsBytes());
+      final x = _loaded != null ? _kept : pcmSamples(await _file!.readAsBytes());
       final clone = await cloner.add(_name.text.trim(), x, cloneRate);
       cloner.choose(clone);
       if (mounted) Navigator.pop(context);
@@ -358,6 +435,36 @@ class _RecordVoiceSheetState extends State<RecordVoiceSheet> {
             const SizedBox(width: 14),
             Text('$seconds ${tr('sn')}', style: TextStyle(color: c.ink, fontSize: 15, fontFeatures: const [FontFeature.tabularFigures()])),
           ]),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: saving || recording ? null : _fromFile,
+            icon: const Icon(Icons.audio_file_outlined),
+            label: Text(tr('Dosyadan yükle (ses ya da video)')),
+            style: OutlinedButton.styleFrom(foregroundColor: c.ink, side: BorderSide(color: c.line)),
+          ),
+          if (_loaded != null && _part != null) ...[
+            const SizedBox(height: 6),
+            Text(tr('En çok konuşma olan bölüm seçildi. Sürükleyip değiştirebilir, dinleyebilirsin.'), style: TextStyle(color: c.muted, fontSize: 13)),
+            Row(children: [
+              IconButton(onPressed: _listen, icon: Icon(Icons.play_arrow_rounded, color: c.accent), tooltip: tr('Dinle')),
+              Expanded(
+                child: RangeSlider(
+                  values: _part!,
+                  max: _loaded!.length / cloneRate,
+                  activeColor: c.accent,
+                  onChanged: (v) {
+                    // between 10 and 60 seconds
+                    if (v.end - v.start < 10 || v.end - v.start > 60) return;
+                    setState(() {
+                      _part = v;
+                      seconds = (v.end - v.start).round();
+                    });
+                  },
+                ),
+              ),
+              Text('${_part!.start.round()}–${_part!.end.round()} ${tr('sn')}', style: TextStyle(color: c.ink, fontSize: 13)),
+            ]),
+          ],
           if (note != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(note!, style: TextStyle(color: c.accent, fontSize: 13))),
           const SizedBox(height: 12),
           TextField(

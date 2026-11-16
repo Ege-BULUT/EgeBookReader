@@ -68,4 +68,19 @@ void main() {
     }
     expect(cuts[1] ~/ rate, 6); // inside the silent second
   });
+
+  test('a voice from a file: the 40 seconds with the most speech are picked', () {
+    const rate = 1000;
+    // 120 s: hiss, then speech from 50 s to 95 s with short pauses, then hiss again.
+    final x = Float32List(120 * rate);
+    for (var i = 0; i < x.length; i++) {
+      final t = i / rate;
+      final talking = t >= 50 && t < 95 && (t * 2).floor() % 5 != 0;
+      x[i] = (talking ? 0.3 : 0.004) * sin(i * 0.7);
+    }
+    final (a, b) = bestWindow(x, rate);
+    expect(b - a, 40 * rate);
+    expect(a, inInclusiveRange(50 * rate, 55 * rate));
+    expect(bestWindow(Float32List(20 * rate), rate), (0, 20 * rate));
+  });
 }
