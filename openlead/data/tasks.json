@@ -546,7 +546,7 @@
       "id": "T-0017",
       "title": "Web reader at /read with an Open in web button",
       "description": "Plain JS modules in site/read: formats.js/zip.js (ported from formats.dart), text.js (columns), pages.js (curl, spreads, zoom, strip), pdf.js and archive.js (vendored pdf.js and libarchive.js), IndexedDB library, service worker. Checked with Playwright on desktop and phone sizes with every format.",
-      "status": "backlog",
+      "status": "accepted",
       "urgency": "high",
       "tag": "web",
       "milestone": "M19",
@@ -555,7 +555,7 @@
       "relatedTo": [],
       "owner": "",
       "createdAt": "2026-11-16T16:19:05",
-      "updatedAt": "2026-11-16T16:19:05",
+      "updatedAt": "2026-11-16T16:21:41",
       "comments": [],
       "log": [
         {
@@ -563,6 +563,12 @@
           "actor": "unspecified",
           "event": "created",
           "detail": "status=backlog, urgency=high"
+        },
+        {
+          "ts": "2026-11-16T16:21:41",
+          "actor": "egebookreader",
+          "event": "updated",
+          "detail": "status: backlog -> accepted"
         }
       ],
       "sessions": []
