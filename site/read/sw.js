@@ -1,5 +1,5 @@
 // Keeps the web reader working offline, and takes files from Android's share sheet into the library.
-const CACHE = 'ebr-web-1';
+const CACHE = 'ebr-web-2';
 const SHELL = ['/read/', '/read/read.css', '/read/boot.js', '/read/app.js', '/read/store.js', '/read/text.js', '/read/pages.js',
   '/read/formats.js', '/read/zip.js', '/read/manifest.webmanifest', '/read/icon-192.png', '/curl.frag.js', '/logo.svg', '/manga/ghost.png'];
 

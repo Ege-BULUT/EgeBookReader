@@ -27,6 +27,10 @@ const T = {
     voice: 'Voice', rate: 'Speed', sysVoice: 'Default voice', searchHint: 'Type at least two letters', results: 'matches', noResults: 'Nothing found.', more: 'Showing the first 300.',
     mode: 'Style', book: 'Book', manga: 'Manga', on: 'On', off: 'Off', fmt: 'Format', finished: 'Finished', newBook: 'New',
     err: { unknown: 'This file type cannot be opened.', corrupt: 'The file looks damaged and could not be opened.', drm: 'This book is locked with DRM, so it cannot be opened.', huff: 'This Kindle book uses a compression that is not supported yet.', djvu: 'DjVu opens in the Android app, not in the browser yet.', locked: 'This file is password protected.', empty: 'There are no pages in this archive.', old: 'This browser is too old for the reader. Try a current Chrome, Edge, Firefox or Safari.', store: 'The book opened, but there was no room to keep it in the library.' },
+    inApp: 'In the Android app', getApp: 'Download for this feature',
+    locked: { colorize: 'Colour black-and-white pages', upscale: 'AI upscaling', translate: 'Translate speech balloons', panels: 'Panel by panel',
+      filters: 'Paper and picture filters', voices: 'Natural voices, offline', ownVoice: 'Read in your own voice', notes: 'Highlights and notes',
+      bookMode: 'Real book mode', eink: 'E-ink mode', stats: 'Reading statistics' },
     rtlHint: 'Right to left', keys: 'Arrows or space turn pages, F for full screen, Esc to go back.',
   },
   tr: {
@@ -46,6 +50,10 @@ const T = {
     voice: 'Ses', rate: 'Hız', sysVoice: 'Varsayılan ses', searchHint: 'En az iki harf yaz', results: 'sonuç', noResults: 'Bulunamadı.', more: 'İlk 300 sonuç gösteriliyor.',
     mode: 'Görünüm', book: 'Kitap', manga: 'Manga', on: 'Açık', off: 'Kapalı', fmt: 'Biçim', finished: 'Bitti', newBook: 'Yeni',
     err: { unknown: 'Bu dosya türü açılamıyor.', corrupt: 'Dosya bozuk görünüyor, açılamadı.', drm: 'Bu kitap DRM ile kilitli, açılamıyor.', huff: 'Bu Kindle kitabı henüz desteklenmeyen bir sıkıştırma kullanıyor.', djvu: 'DjVu şimdilik tarayıcıda değil, Android uygulamasında açılıyor.', locked: 'Bu dosya parolayla korunuyor.', empty: 'Bu arşivde sayfa yok.', old: 'Bu tarayıcı okuyucu için çok eski. Güncel bir Chrome, Edge, Firefox ya da Safari dene.', store: 'Kitap açıldı ama kitaplıkta saklamaya yer kalmadı.' },
+    inApp: 'Android uygulamasında', getApp: 'Bu özellik için indir',
+    locked: { colorize: 'Siyah-beyaz sayfaları renklendir', upscale: 'Yapay zekâyla netleştirme', translate: 'Konuşma balonlarını çevir', panels: 'Kare kare okuma',
+      filters: 'Kağıt ve resim filtreleri', voices: 'Doğal sesler, çevrimdışı', ownVoice: 'Kendi sesinle okuma', notes: 'Vurgular ve notlar',
+      bookMode: 'Gerçek kitap görünümü', eink: 'E-mürekkep modu', stats: 'Okuma istatistikleri' },
     rtlHint: 'Sağdan sola', keys: 'Oklar ya da boşluk sayfa çevirir, F tam ekran, Esc geri.',
   },
 };
@@ -368,6 +376,12 @@ function settingsPanel() {
       choice('fit', 'fit', [['page', 'fitPage'], ['width', 'fitWidth']]),
     );
   }
+  // What only the app does, shown greyed out; a click stamps it and goes to the downloads page.
+  const locked = book.kind === 'text' ? ['voices', 'ownVoice', 'notes', 'bookMode', 'eink', 'stats'] : ['colorize', 'upscale', 'translate', 'panels', 'filters', 'stats'];
+  sheet.append(h('h3', { class: 'inapp', text: t('inApp') }), ...locked.map(k => h('a', {
+    class: 'row locked', href: '/download', 'aria-label': `${t('locked')[k]}: ${t('getApp')}`,
+    onclick: e => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); e.currentTarget.classList.add('stamped'); setTimeout(() => location.assign('/download'), 450); },
+  }, h('span', { class: 'lbl', text: t('locked')[k] }), h('span', { class: 'tog', 'aria-hidden': 'true' }), h('span', { class: 'stamp', 'aria-hidden': 'true', text: t('getApp') }))));
   sheet.append(h('p', { class: 'muted small', text: t('keys') }));
 }
 function settingsPanelRefresh() { const y = sheet.scrollTop; renderPanel('settings'); sheet.scrollTop = y; }

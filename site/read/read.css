@@ -161,6 +161,24 @@ html.dropping #dropzone{display:flex}
 .seg{display:flex;flex-wrap:wrap;gap:4px;padding:3px;border-radius:10px;background:rgba(35,31,27,.07)}
 .seg button{padding:7px 11px;border-radius:8px;font:500 13px var(--ui);color:#4a4239}
 .seg [aria-checked=true]{background:#fff;color:#231f1b;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+/* Features only the app has: greyed out, stamped in red on hover, focus or tap */
+.inapp{margin:22px 0 2px;font:600 11px var(--ui);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.row.locked{position:relative;color:inherit;text-decoration:none;cursor:pointer;flex-wrap:nowrap;outline:none}
+.row.locked .lbl,.row.locked .tog{opacity:.42;filter:grayscale(1);transition:opacity .2s}
+.tog{flex:none;width:38px;height:22px;border-radius:11px;background:rgba(35,31,27,.18);position:relative}
+.tog::after{content:"";position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.stamp{position:absolute;left:50%;top:50%;padding:4px 12px 3px;border:3px double #c8102e;border-radius:6px;color:#c8102e;background:rgba(255,255,255,.5);
+  font:800 13px/1.2 var(--ui);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;pointer-events:none;
+  opacity:0;transform:translate(-50%,-50%) rotate(-7deg) scale(2.4);mix-blend-mode:multiply}
+.row.locked:hover .stamp,.row.locked:focus-visible .stamp,.row.locked.stamped .stamp{animation:stamp .34s cubic-bezier(.2,1.5,.45,1) forwards}
+.row.locked:hover .lbl,.row.locked:focus-visible .lbl,.row.locked.stamped .lbl{opacity:.22}
+.row.locked:focus-visible{box-shadow:inset 0 0 0 2px var(--accent);border-radius:8px}
+@keyframes stamp{0%{opacity:0;transform:translate(-50%,-50%) rotate(-16deg) scale(2.4)}60%{opacity:.95;transform:translate(-50%,-50%) rotate(-6deg) scale(.94)}100%{opacity:.92;transform:translate(-50%,-50%) rotate(-7deg) scale(1)}}
+@media (prefers-reduced-motion:reduce){.row.locked:hover .stamp,.row.locked:focus-visible .stamp,.row.locked.stamped .stamp{animation:none;opacity:.92;transform:translate(-50%,-50%) rotate(-7deg)}}
+html[data-mode=manga] .inapp{font:400 18px Bangers,Impact,sans-serif;letter-spacing:.06em;color:#000}
+html[data-mode=manga] .stamp{font:400 17px/1.1 Bangers,Impact,sans-serif;border:3px solid #c8102e;border-radius:0;background:#fff;mix-blend-mode:normal}
+html[data-mode=manga] .tog{border-radius:0;border:2px solid #000;background:#fff}
+html[data-mode=manga] .tog::after{border-radius:0;background:#000;box-shadow:none;top:2px;left:2px}
 .swatches{display:flex;gap:8px}
 .sw{width:42px;height:42px;border-radius:50%;background:var(--bg);color:var(--ink);font:500 14px var(--serif);border:1.5px solid rgba(35,31,27,.2);display:grid;place-items:center}
 .sw[aria-pressed=true]{outline:2.5px solid var(--accent);outline-offset:2px}

@@ -237,6 +237,7 @@ function fit(el, base) {
 
 // ---- the reader --------------------------------------------------------------------------------------
 let W, H, single, els = [], views = [], at = 0, busy = false, built = false, dirty = false;
+let want = new URLSearchParams(location.search).get('to'); // a section to open at, as /download asks for 'downloads'
 const stage = h('div', 'mstage'), vol = h('div', 'mvol'), slotL = h('div', 'mslot l'), slotR = h('div', 'mslot r'), measure = h('div', 'mmeasure');
 const btnNext = h('button', 'next', h('b', '', '◀'), h('span', '')), btnPrev = h('button', 'prev', h('span', ''), h('b', '', '▶'));
 const btnToc = h('button', 'tocb', ''), count = h('span', 'mcount');
@@ -268,7 +269,10 @@ function render() {
     for (let i = 1; i < els.length - 1; i += 2) views.push({ r: i, l: i + 1 });
     if (els.length % 2 === 0) views.push({ r: els.length - 1 });
   }
-  at = Math.max(0, views.findIndex(v => v.r === keep || v.l === keep));
+  const goal = want ? els.findIndex(e => e.dataset.sec === want) : -1;
+  want = null;
+  const i = goal >= 0 ? goal : keep;
+  at = Math.max(0, views.findIndex(v => v.r === i || v.l === i));
   btnNext.lastChild.textContent = t('next'); btnPrev.firstChild.textContent = t('prev'); btnToc.textContent = t('contents');
   btnNext.setAttribute('aria-label', t('next')); btnPrev.setAttribute('aria-label', t('prev'));
   stage.setAttribute('aria-label', 'EgeBookReader');

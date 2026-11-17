@@ -292,10 +292,10 @@ function auto(dir, speed = 1.5) {
 }
 
 // ---- moving through the book ---------------------------------------------------------------------------
-function openCover() {
+function openCover(to = 0) {
   if (busy) return;
   busy = true;
-  at = 0; showView(); fitLive();
+  at = to; showView(); fitLive();
   if (narrow()) coverLeaf.style.opacity = 0;
   coverLeaf.classList.add('open');
   setTimeout(() => { busy = false; coverLeaf.style.visibility = 'hidden'; coverLeaf.style.opacity = ''; }, reduced ? 0 : 900);
@@ -491,3 +491,7 @@ addEventListener('resize', () => {
 applyLang();
 initGL();
 rebuild();
+// /download (and ?to=downloads) opens the book at its downloads page.
+if (new URLSearchParams(location.search).get('to') === 'downloads' && document.documentElement.dataset.mode !== 'manga') {
+  openCover(Math.max(0, views.findIndex(v => v.left === 'p5' || v.right === 'p5')));
+}
