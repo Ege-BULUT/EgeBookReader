@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://egebookreader.vercel.app/sitemap.xml
